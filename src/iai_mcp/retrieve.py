@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from iai_mcp.aaak import enforce_english_raw, generate_aaak_index
 from iai_mcp.events import query_events, write_event
+from iai_mcp.profile_scope import session_profile_of
 from iai_mcp.recall_suppression import recall_suppressed
 from iai_mcp.store import MemoryStore, RECORDS_TABLE, _uuid_literal, flush_record_buffer
 from iai_mcp.types import (
@@ -192,6 +193,38 @@ def recall(
             log.warning("recall cue re-embed failed, using caller vector: %s", exc)
 
     raw = store.query_similar(cue_embedding, k=k_hits + k_anti)
+
+    # ── Profile scope (fork) ──────────────────────────────────────────────
+    # IAI_MCP_PROFILE scopes recall to one Hermes profile's records. Without
+    # it, every profile on the machine shares one memory pool, which is the
+    # opposite of what Hermes profiles imply.
+    #
+    # Two sources of attribution, because a record may predate tagging:
+    #   * a `profile:<name>` tag (stamped at capture by the fork's hook), or
+    #   * the session_id inside provenance, resolved against the session→
+    #     profile map (covers records captured before tagging existed).
+    #
+    # Records attributable to NO profile are EXCLUDED under a scope: strict
+    # isolation means an unattributed record is not silently treated as
+    # belonging to whichever profile happens to be asking. Set the scope to
+    # the literal "all" to disable filtering deliberately.
+    _profile = (os.environ.get("IAI_MCP_PROFILE") or "").strip()
+    if _profile and _profile != "all":
+        _want = f"profile:{_profile}"
+        _keep = []
+        for _rec, _score in raw:
+            _tags = _rec.tags or []
+            if _want in _tags:
+                _keep.append((_rec, _score))
+                continue
+            # No tag → fall back to provenance session_id.
+            try:
+                _sid = (_rec.provenance or [{}])[0].get("session_id")
+            except Exception:  # noqa: BLE001 -- malformed provenance is unattributable
+                _sid = None
+            if _sid and session_profile_of(_sid) == _profile:
+                _keep.append((_rec, _score))
+        raw = _keep
 
     # Procedural tier is never served as visible text, in any mode --
     # mirrors core._passes_mode_filter's unconditional exclusion.

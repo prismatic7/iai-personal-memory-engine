@@ -172,6 +172,16 @@ def _drain_files(store, paths) -> dict:  # noqa: ANN001
                 role=role,
                 ts=ev.get("ts"),
                 source_uuid=ev.get("source_uuid"),
+                # Profile tag (fork): the capture hook stamps the originating
+                # Hermes profile into the spool event, and it is carried here
+                # into extra_tags so recall can scope by profile. Absent on
+                # events written by an older hook -- capture simply stamps
+                # nothing, and the record is treated as unattributed.
+                extra_tags=(
+                    [f"profile:{ev['profile']}"]
+                    if isinstance(ev.get("profile"), str) and ev.get("profile")
+                    else None
+                ),
                 # This is the ambient transcript-batch drain: the drained
                 # event's role/text are a verbatim record of the human's
                 # actual turn, not an assistant-composed string. This is the

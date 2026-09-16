@@ -285,13 +285,40 @@ _write_shadow(safe_dir, "wt.md", wt_data, wt_mtime)
 fs_override = os.environ.get("IAI_MCP_FORESIGHT_PACK", "")
 if fs_override:
     fs_path = fs_override
-elif sid:
-    candidate = os.path.join(IAI_ROOT, ".next-turn-pack." + sid + ".cached.md")
-    fs_path = candidate if os.path.exists(candidate) else os.path.join(
-        IAI_ROOT, ".next-turn-pack.cached.md"
-    )
 else:
-    fs_path = os.path.join(IAI_ROOT, ".next-turn-pack.cached.md")
+    # Profile-scoped pack (fork): foresight hints are drawn from the same
+    # shared pool, so under a scope prefer the scoped name and otherwise fall
+    # through to the per-session/unscoped pack names (a miss simply yields no
+    # hints, never another profile's).
+    _scope_sfx = ""
+    _scope_v = (os.environ.get("IAI_MCP_PROFILE") or "").strip()
+    if _scope_v and _scope_v != "all":
+        _safe_v = "".join(
+            ch if (ch.isalnum() or ch in "-_") else "_" for ch in _scope_v
+        )[:64]
+        _scope_sfx = ("." + _safe_v) if _safe_v else ""
+    if sid:
+        candidate = os.path.join(
+            IAI_ROOT, ".next-turn-pack." + sid + ".cached.md"
+        )
+        scoped = os.path.join(
+            IAI_ROOT, ".next-turn-pack.cached" + _scope_sfx + ".md"
+        )
+        fs_path = (
+            candidate
+            if os.path.exists(candidate)
+            else scoped
+            if (scoped != os.path.join(IAI_ROOT, ".next-turn-pack.cached.md")
+                and os.path.exists(scoped))
+            else os.path.join(IAI_ROOT, ".next-turn-pack.cached.md")
+        )
+    else:
+        scoped = os.path.join(
+            IAI_ROOT, ".next-turn-pack.cached" + _scope_sfx + ".md"
+        )
+        fs_path = scoped if os.path.exists(scoped) else os.path.join(
+            IAI_ROOT, ".next-turn-pack.cached.md"
+        )
 fs_state_path = (
     fs_path[: -len(".cached.md")] if fs_path.endswith(".cached.md") else fs_path
 ) + ".state.json"
@@ -301,6 +328,19 @@ _write_shadow(safe_dir, "fs.md", fs_data, fs_mtime)
 _write_shadow(safe_dir, "fss.json", fss_data, fss_mtime)
 
 cc_path = os.path.join(IAI_ROOT, ".session-continuity.cached.md")
+# Profile-scoped continuity (fork). This file carries the live-state goal of
+# whichever session last held focus, and that session may belong to a
+# DIFFERENT Hermes profile -- a case the session-owner gate below cannot see,
+# because it compares session ids and a profile boundary crosses sessions.
+# Under a profile scope, prefer the scoped file; when it is absent, read
+# nothing rather than another profile's goal.
+_scope = (os.environ.get("IAI_MCP_PROFILE") or "").strip()
+if _scope and _scope != "all":
+    _scope_safe = "".join(
+        ch if (ch.isalnum() or ch in "-_") else "_" for ch in _scope
+    )[:64]
+    if _scope_safe:
+        cc_path = cc_path[: -len(".cached.md")] + "." + _scope_safe + ".cached.md"
 cs_path = cc_path[: -len(".cached.md")] + ".state.json"
 cc_data, cc_mtime = _read_regular(cc_path, 65536)
 cs_data, cs_mtime = _read_regular(cs_path, 4096)

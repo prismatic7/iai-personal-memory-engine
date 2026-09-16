@@ -61,6 +61,20 @@ emit_continuity_agent_block() {
   # script (cache-hit early exit and the CLI-compose fallback) so the agent
   # block is never silently missing from either path.
   cont_path="$HOME/.iai-mcp/.session-continuity.cached.md"
+  # Profile-scoped continuity (fork): this file carries the live-state goal,
+  # so an unscoped read serves whichever session last held focus -- which may
+  # belong to a different profile entirely. Prefer the scoped file; absent,
+  # emit nothing rather than another profile's goal. (The per-turn hook's own
+  # session-owner gate catches the same-session case; this catches the
+  # cross-profile case, which a session-id comparison cannot see.)
+  if [ -n "${IAI_MCP_PROFILE:-}" ] && [ "${IAI_MCP_PROFILE}" != "all" ]; then
+    _cont_safe=$(printf '%s' "$IAI_MCP_PROFILE" | tr -c 'A-Za-z0-9_-' '_' | cut -c1-64)
+    if [ -n "$_cont_safe" ]; then
+      _cont_scoped="${cont_path%.md}.${_cont_safe}.md"
+      [ -f "$_cont_scoped" ] || return 0
+      cont_path="$_cont_scoped"
+    fi
+  fi
   [ -f "$cont_path" ] || return 0
   cont_mtime=$(stat -c %Y "$cont_path" 2>/dev/null || stat -f %m "$cont_path" 2>/dev/null || echo 0)
   [ "$cont_mtime" -gt 0 ] || return 0
@@ -107,6 +121,19 @@ wake_depth_sidecar_path="$HOME/.iai-mcp/.session-wake-depth"
 # Each branch writes a contract log marker. Falls through to the live CLI path
 # on any miss.
 cache_path="$HOME/.iai-mcp/.session-start-payload.cached.md"
+# Profile-scoped cache (fork). A warmed cache is built for ONE profile's
+# memory scope, and the daemon writes a single unscoped file -- so under a
+# profile scope the scoped name is preferred and, when absent, this script
+# falls through to the live CLI compose (which applies the recall-level
+# filter). Correctness first: a warm cache is an optimisation and must never
+# serve one profile's memories to another.
+if [ -n "${IAI_MCP_PROFILE:-}" ] && [ "${IAI_MCP_PROFILE}" != "all" ]; then
+  _prof_safe=$(printf '%s' "$IAI_MCP_PROFILE" | tr -c 'A-Za-z0-9_-' '_' | cut -c1-64)
+  if [ -n "$_prof_safe" ]; then
+    _scoped="${cache_path%.md}.${_prof_safe}.md"
+    [ -f "$_scoped" ] && cache_path="$_scoped"
+  fi
+fi
 stale_cache_fallback=""
 if [ -s "$cache_path" ]; then
   # Cross-platform mtime: try GNU stat, then BSD stat.

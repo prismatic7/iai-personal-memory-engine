@@ -27,6 +27,13 @@ session_id = str(payload.get("session_id") or "")
 if not session_id:
     sys.exit(0)
 
+# Originating Hermes profile (fork). Hermes stamps "profile" into every hook
+# payload; the spool event carries it so the store can tag each record with
+# its source profile and recall can scope on it. Empty on an older host that
+# does not send the field -- the record is then simply unattributed.
+profile = payload.get("profile")
+profile = str(profile) if isinstance(profile, str) else ""
+
 hermes_home = Path(os.environ.get("IAI_MCP_HERMES_HOME") or (Path.home() / ".hermes"))
 db_path = hermes_home / "state.db"
 if not db_path.is_file():
@@ -99,6 +106,10 @@ try:
                 "ts": str(ts) if ts else datetime.now(timezone.utc).isoformat(),
                 "source_uuid": f"hermes-{session_id}-{rid}",
             }
+            # Stamped only when the host sent it, so the presence of the field
+            # is itself meaningful (absent = pre-fork hook or non-Hermes writer).
+            if profile:
+                event["profile"] = profile
             out.write(json.dumps(event, ensure_ascii=False) + "\n")
         out.flush()
         os.fsync(out.fileno())
