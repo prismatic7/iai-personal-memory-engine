@@ -57,6 +57,10 @@ class SleepStep(Enum):
     RECONSOLIDATION_VALENCE = 18
     PROC_MINE = 19
     TRANSCRIPT_SWEEP_BACKSTOP = 20
+    #: Fork addition. Value 21 and LAST in _STEP_ORDER: WAL recovery persists
+    #: step POSITIONS, so a new step must be tail-appended or in-flight cycles
+    #: from an older binary resume at the wrong index.
+    SEMANTIC_LINK = 21
 
 
 class SleepPhase(Enum):
@@ -86,6 +90,10 @@ STEP_PHASE: dict[SleepStep, SleepPhase] = {
     SleepStep.RECONSOLIDATION_VALENCE: SleepPhase.REM,
     SleepStep.PROC_MINE: SleepPhase.REM,
     SleepStep.TRANSCRIPT_SWEEP_BACKSTOP: SleepPhase.NREM,
+    # Fork addition. REM, and after ENTITY_LINK: lexical edges land first
+    # (cheap, deterministic), then the semantic pass fills the reach lexical
+    # matching cannot have.
+    SleepStep.SEMANTIC_LINK: SleepPhase.REM,
 }
 
 
@@ -114,6 +122,7 @@ _LIVENESS_SPEC: dict[SleepStep, tuple[str | None, str | None]] = {
     SleepStep.RECONSOLIDATION_VALENCE: ("candidates_labile", "valence_writes"),
     SleepStep.PROC_MINE: ("candidates_gated", "chunks_persisted"),
     SleepStep.TRANSCRIPT_SWEEP_BACKSTOP: ("files_seen", "sessions_staged"),
+    SleepStep.SEMANTIC_LINK: ("semantic_candidates", "semantic_edges"),
 }
 
 
@@ -486,6 +495,7 @@ class SleepPipeline:
             SleepStep.RECONSOLIDATION_VALENCE: self._step_reconsolidation_valence,
             SleepStep.PROC_MINE: self._step_proc_mine,
             SleepStep.TRANSCRIPT_SWEEP_BACKSTOP: self._step_transcript_sweep_backstop,
+            SleepStep.SEMANTIC_LINK: self._step_semantic_link,
         }
 
 
@@ -526,6 +536,12 @@ class SleepPipeline:
         # on the courier's own enablement flag; a no-op when the flag is
         # absent or a transcript was already swept by the courier.
         SleepStep.TRANSCRIPT_SWEEP_BACKSTOP,
+        # Tail-appended (FORK ADDITION — see the WAL-recovery note above).
+        # Semantic (embedding-kNN) edges, gated OFF by default via
+        # IAI_MCP_SEMANTIC_EDGES_ON=1. Placed after ENTITY_LINK so lexical
+        # edges land first; the next graph build reads both from the edges
+        # table, so same-cycle ordering between the two is not load-bearing.
+        SleepStep.SEMANTIC_LINK,
     )
 
     # Steps whose bodies materialize large transients (clustering / columnar
@@ -761,7 +777,7 @@ from iai_mcp.lilli.cycle.sleep_pipeline import (  # noqa: E402
     _cluster_replay, _reconsolidation, _user_model, _dmn, _crisis,
     _cluster_summary, _recall_index, _essential_variable, _entity_link,
     _curiosity_mine, _embed_integrity, _topic_naming, _reconsolidation_valence,
-    _proc_mine, _transcript_sweep_backstop,
+    _proc_mine, _transcript_sweep_backstop, _semantic_link,
 )
 
 SleepPipeline._step_schema_mine = _schema_mine.step_schema_mine
@@ -788,6 +804,7 @@ SleepPipeline._step_proc_mine = _proc_mine.step_proc_mine
 SleepPipeline._step_transcript_sweep_backstop = (
     _transcript_sweep_backstop.step_transcript_sweep_backstop
 )
+SleepPipeline._step_semantic_link = _semantic_link.step_semantic_link
 SleepPipeline._run_essential_variable_tracker_hook = _essential_variable.run_essential_variable_tracker_hook
 SleepPipeline._clear_crisis_mode_via_s2_or_fallback = _essential_variable.clear_crisis_mode_via_s2_or_fallback
 SleepPipeline._set_crisis_mode_via_s2_or_fallback = _essential_variable.set_crisis_mode_via_s2_or_fallback

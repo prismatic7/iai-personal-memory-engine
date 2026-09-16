@@ -595,6 +595,10 @@ def test_recall_index_rebuild_step_position():
         # incrementally per row (hippo._table add_items), so these rows
         # reach rank time without waiting on the next full rebuild.
         SleepStep.TRANSCRIPT_SWEEP_BACKSTOP,
+        # Tail-appended (fork addition) -- writes EDGES only, never records
+        # and never the vector index, so it satisfies the trailing-step rule
+        # by the first clause. Gated off by default (IAI_MCP_SEMANTIC_EDGES_ON).
+        SleepStep.SEMANTIC_LINK,
     }
     trailing = set(step_order[idx_rebuild + 1:])
     assert trailing <= may_trail, (

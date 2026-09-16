@@ -75,6 +75,14 @@ EDGE_TYPES: frozenset[str] = frozenset({
     "pattern_separation_seed",
     "hebbian_cluster_replay",
     "entity_shared",
+    # Embedding-kNN edges (fork): links records whose stored vectors are
+    # similar, so the graph can connect records that share NO rare literal
+    # token — the reach `entity_shared` structurally cannot have. INFERRED
+    # structure like entity_shared, and deliberately NOT added to
+    # `graph.TRANSFER_EDGE_TYPES` (semantic proximity is not a license to
+    # spread): it widens graph reach for clustering without letting shared
+    # vocabulary-turned-vector-neighbours manufacture hubs.
+    "semantic_knn",
 })
 
 

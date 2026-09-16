@@ -248,6 +248,31 @@ class ExactCosineIndex:
             self._count = 0
             self._generation += 1
 
+    def snapshot_rows(self) -> list[tuple[str, "np.ndarray"]] | None:
+        """A locked, consistent (record_id, unit_vector) copy of the warm index.
+
+        Added for the semantic edge miner: it needs to iterate the SAME vectors
+        the index serves, without a second load and without racing a concurrent
+        ``upsert``/``invalidate``. Returns None when cold (caller must build
+        first) and [] when warm-but-empty — matching ``top_k``'s contract so
+        callers can distinguish "not ready" from "nothing here".
+
+        The vectors are the index's own rows, already L2-normalised (the index
+        normalises on build/upsert), so a caller may use them directly as cues.
+        Returned arrays are views into the resident matrix; treat them as
+        read-only. Copying each row would double the corpus footprint for no
+        benefit at these sizes.
+        """
+        with self._lock:
+            if not self._warm or self._m is None:
+                return None
+            count = self._count
+            if count == 0:
+                return []
+            ids = list(self._ids[:count])
+            rows = self._m[:count]
+            return [(ids[i], rows[i]) for i in range(count)]
+
     def __len__(self) -> int:
         with self._lock:
             return self._count
