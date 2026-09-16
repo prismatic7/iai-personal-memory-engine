@@ -1665,14 +1665,52 @@ class HippoDB:
         Double-firing through both routes is harmless — the bump is an
         idempotent int increment. Takes only the pool's own trivial lock,
         never ``_conn_lock``/``_hnsw_lock`` — no new lock-ordering edge.
+
+        RE-PUBLISH (fork): after the bump, republish the writer's built
+        col/id index pairs so the slots that refresh on the next borrow can
+        ADOPT them instead of paying their own lazy whole-table build. The
+        engine's id index is per-connection and in-memory only (there is no
+        on-disk id index — only ``records.colindex`` is persisted), so a slot
+        refresh is otherwise forced to rescan the entire ``records`` table on
+        its first indexed read. Measured on a 13.6k-record store: first
+        point-lookup after a refresh visits 13,654 cells and takes ~1.0 s on
+        the live store, versus 0 cells / 0.3 ms when the index is adopted.
+        With refreshes firing on every writer commit, that cost was paid
+        repeatedly (1,569 slow point-lookups totalling ~1,193 s in one
+        logged window).
+
+        ``publish_read_models`` is idempotent and cheap (~70 ms) and the
+        engine's own adoption already re-verifies a write-generation stamp
+        per table, so republishing here cannot make a reader serve stale
+        rows — a mismatched stamp is simply not adopted, and the lazy build
+        remains the always-correct fallback. No-raise, like the bump above.
         """
         pool = getattr(self, "_ro_pool", None)
         if pool is None:
             return
         try:
             pool.mark_stale()
+            self._republish_read_models()
         except Exception as exc:  # noqa: BLE001 -- no-raise contract
             _log.debug("mark_ro_pool_stale failed: %s", exc)
+
+    def _republish_read_models(self) -> None:
+        """Rebuild+publish the writer's col/id index pairs for reader adoption.
+
+        Best-effort and no-raise: this is an accelerator for the RO pool, so a
+        failure must leave the lazy per-connection build as the fallback rather
+        than surface an error on a write path.
+        """
+        conn = getattr(self, "_conn", None)
+        if conn is None:
+            return
+        publish = getattr(conn, "publish_read_models", None)
+        if not callable(publish):
+            return
+        try:
+            publish()
+        except Exception as exc:  # noqa: BLE001 -- accelerator only
+            _log.debug("read-model republish failed: %s", exc)
 
     @contextlib.contextmanager
     def ro_conn(self):
