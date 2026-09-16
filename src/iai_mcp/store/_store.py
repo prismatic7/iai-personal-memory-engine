@@ -2386,14 +2386,23 @@ class MemoryStore:
                             ids.append(UUID(str(row["id"])))
                         except (TypeError, ValueError):
                             continue
-                    rows: list[tuple[str, str]] = []
-                    for i in range(0, len(ids), 400):
-                        batch = self.get_batch(ids[i : i + 400])
-                        rows.extend(
-                            (str(rid), rec.literal_surface or "")
-                            for rid, rec in batch.items()
-                        )
-                    idx.build(rows, gen)
+
+                    def _surface_batches():
+                        """Decrypt one batch at a time and let it go.
+
+                        Previously this accumulated every (id, surface) into a
+                        list and passed that to `build`, holding ~14k decrypted
+                        surfaces simultaneously — measured at +134 MB on a 14k
+                        corpus, the largest single transient in the sleep
+                        cycle. Streaming drops the duplicate list; the index
+                        itself (postings/doc_len) is unchanged.
+                        """
+                        for i in range(0, len(ids), 400):
+                            batch = self.get_batch(ids[i : i + 400])
+                            for rid, rec in batch.items():
+                                yield (str(rid), rec.literal_surface or "")
+
+                    idx.build_stream(_surface_batches(), gen)
         pairs = idx.query(query, k=k)
         if not pairs:
             return []

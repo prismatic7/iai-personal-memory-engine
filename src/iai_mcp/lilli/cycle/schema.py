@@ -69,11 +69,43 @@ def _tag_cooccurrence(records: Iterable) -> dict:
 
 
 def induce_schemas_tier0(store: MemoryStore) -> list[SchemaCandidate]:
-    rows = list(store.iter_record_columns(["id", "tags_json"], batch_size=1024))
-    if len(rows) < 3:
+    # Streamed, not listed. `_tag_cooccurrence` accepts any Iterable and
+    # accumulates only the pair→evidence map, so materialising every row first
+    # was pure waste: measured at +273 MB peak on a 14k corpus (the largest
+    # single transient in the sleep cycle) for a pass that finishes in ~3 s.
+    # The generator keeps the store's own 1024-row batching, so at most one
+    # batch is resident at a time.
+    rows = store.iter_record_columns(["id", "tags_json"], batch_size=1024)
+    return _induce_schemas_tier0_from(rows)
+
+
+def _induce_schemas_tier0_from(rows: Iterable, *, min_rows: int = 3) -> list[SchemaCandidate]:
+    """Body of the tier-0 induction over any iterable of row mappings.
+
+    Split out so the streaming contract is explicit and testable: the caller
+    must be able to pass a generator, and nothing here may require len() or
+    repeated iteration.
+
+    The original `len(rows) < 3` guard is preserved by counting as we stream
+    (a tiny non-local, not a materialised list): below three records the
+    induction is meaningless, and the count is only known once the stream is
+    exhausted — which is fine, because the guard is a pure early-return on the
+    RESULT, not a precondition for the scan.
+    """
+    seen = 0
+
+    def _counting() -> Iterable:
+        nonlocal seen
+        for r in rows:
+            seen += 1
+            yield r
+
+    pair_counts = _tag_cooccurrence(_counting())
+    if seen < min_rows:
+        return []
+    if not pair_counts:
         return []
 
-    pair_counts = _tag_cooccurrence(rows)
     candidates: list[SchemaCandidate] = []
     for pair, evidence in pair_counts.items():
         count = len(evidence)
@@ -347,11 +379,15 @@ def provisional_schemas_for_recall(
             rid: rec for rid, rec in records_cache.items() if rid in hit_ids
         }
     else:
+        # Fetch ONLY the hit records. This previously called `store.all_records()`
+        # — a full-corpus materialisation with every embedding and decrypted
+        # surface — purely to filter down to `hit_ids`, which is at most a few
+        # dozen ids. Measured at +273 MB peak on a 14k corpus, the second-largest
+        # transient in the sleep cycle, for a projection of <20 rows.
         try:
-            all_recs = store.all_records()
+            by_id = store.get_batch(list(hit_ids))
         except (OSError, RuntimeError, ValueError):
             return []
-        by_id = {r.id: r for r in all_recs if r.id in hit_ids}
 
     tag_count: Counter = Counter()
     for h in hits:

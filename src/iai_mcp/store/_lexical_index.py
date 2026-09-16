@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
-from typing import Any
+from typing import Any, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +79,37 @@ class LexicalIndex:
             return list(self._postings.items())
 
     def build(self, rows: "list[tuple[str, str]]", generation: Any) -> None:
+        """Build from a fully-materialised list of (record_id, surface) pairs.
+
+        Kept for callers that already hold the rows (tests, migrations).
+        Prefer `build_stream` on any corpus-sized path: this signature forces
+        the caller to hold every decrypted surface at once.
+        """
+        self.build_stream(rows, generation)
+
+    def build_stream(self, rows_iter: "Iterable[tuple[str, str]]", generation: Any) -> None:
+        """Build from a STREAM of (record_id, surface) pairs.
+
+        Same index as `build()`, but it never requires the caller to
+        materialise the whole decrypted corpus first. The caller
+        (`MemoryStore.lexical_search`) previously accumulated every row in a
+        Python list before invoking `build`, which held ~14k decrypted
+        surfaces simultaneously — measured at **+134 MB** for a 14k corpus and
+        the largest single transient in the sleep cycle.
+
+        Memory shape: this still holds `postings` and `doc_len` (the index
+        itself, irreducible), but drops the duplicate `rows` list — the caller
+        can decrypt one batch, feed it, and let it go.
+
+        `avg_len` needs the corpus total, so `doc_len` is accumulated here
+        rather than computed from a pre-held list. `n_docs` is the count of
+        distinct ids seen.
+        """
         import math
 
         postings: dict[str, dict[str, int]] = {}
         doc_len: dict[str, int] = {}
-        for rid, surface in rows:
+        for rid, surface in rows_iter:
             tokens = tokenize(surface)
             doc_len[rid] = len(tokens)
             for tok in tokens:
@@ -97,6 +123,10 @@ class LexicalIndex:
             self._avg_len = max(avg_len, 1.0)
             self._n_docs = n_docs
             self._generation = generation
+        logger.debug(
+            "lexical index built (stream): %d docs, %d tokens, avg_len %.1f (%s)",
+            n_docs, len(postings), avg_len, math.floor(avg_len),
+        )
         logger.debug(
             "lexical index built: %d docs, %d tokens, avg_len %.1f (%s)",
             n_docs, len(postings), avg_len, math.floor(avg_len),
