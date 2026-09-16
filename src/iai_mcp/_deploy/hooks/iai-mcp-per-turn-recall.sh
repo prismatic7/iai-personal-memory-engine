@@ -456,6 +456,25 @@ emit_live_state_fallback() {
     fi
     block=$(sed -n '/<iai-mcp-live-state>/,/<\/iai-mcp-live-state>/p' "$CONTINUITY_CACHE" | sed '1d;$d')
     [ -n "$block" ] || return 0
+    # In-block owner gate (belt-and-braces alongside the sidecar above).
+    # The sidecar is a SEPARATE file, so it can be absent (old daemon),
+    # deleted, unreadable, or never written by a session that only read --
+    # in every one of those cases the sidecar check above fails OPEN and
+    # another session's goal would be emitted. `render_live_state_segment`
+    # now stamps a `session:` owner INSIDE the block, so that information
+    # cannot go missing independently of the content it describes: a
+    # present-and-different owner is strictly more information than an
+    # absent sidecar. Still fail-open when the owner line is absent, so an
+    # older daemon's blocks keep flowing.
+    _block_owner=$(printf '%s\n' "$block" | sed -n 's/^session:[[:space:]]*//p' | head -1)
+    if [ -n "$_block_owner" ] && [ -n "${SESS_IN:-}" ] && [ "$_block_owner" != "$SESS_IN" ]; then
+        return 0
+    fi
+    # Scrub the harness skill-load preamble on the way out: a block already
+    # on disk was written before the render-side strip landed, so it may
+    # still carry "[IMPORTANT: The user has invoked ...]" until the daemon
+    # next re-renders. Defence in depth, matching _clean_surface.
+    block=$(printf '%s\n' "$block" | sed -e 's/^goal:[[:space:]]*\[IMPORTANT:[^]]*\][[:space:]]*/goal: /')
     echo "<iai-mcp-live-state>"
     printf '%s\n' "$block" | head -c 4096
     echo "</iai-mcp-live-state>"

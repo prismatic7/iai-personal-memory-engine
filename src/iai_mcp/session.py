@@ -54,10 +54,24 @@ for _name in _MARKER_NAMES:
     _MARKER_PATTERNS.append((_well_formed, _dangling, _close_tag))
 
 
+_SKILL_PREAMBLE_RE = re.compile(
+    r"^\s*\[IMPORTANT:.*?(?:skill|instructions).*?\]\s*", re.DOTALL | re.IGNORECASE
+)
+#: Some agent harnesses set the opening user turn to a skill-load notice of
+#: the form ``[IMPORTANT: The user has invoked the "x" skill, indicating they
+#: want you to follow its instructions.]`` followed by the skill body. That
+#: turn seeds the working-tier goal verbatim, so the preamble would otherwise
+#: reach the injected continuity surface wearing directive framing it has no
+#: standing to carry. Stripped at the RENDER boundary only: the stored record
+#: keeps what actually happened, while the in-context surface does not
+#: present harness boilerplate as an instruction.
+
+
 def _clean_surface(text: str) -> str:
     if not text:
         return ""
     text = _ANSI_RE.sub("", text)
+    text = _SKILL_PREAMBLE_RE.sub("", text)
     for well_formed, dangling, close_tag in _MARKER_PATTERNS:
         text = well_formed.sub("", text)
         text = dangling.sub("", text)
@@ -317,6 +331,18 @@ def render_live_state_segment(*, fold_sensory: bool = True) -> str:
     if entry is None:
         return ""
     lines: list[str] = []
+    # The OWNING session id, rendered first so a byte-cap truncation can
+    # never drop it. This render reads the GLOBAL focal task (no session_id
+    # by design — the composer's session_id is a placeholder on the daemon's
+    # cached path), so the block it produces is session-agnostic and lands in
+    # whatever session consumes it next. Without an owner line a consumer
+    # cannot distinguish "my continuity" from "another session's task", and a
+    # completed cron job's goal was injected as the live goal of an unrelated
+    # interactive session. Consumers must treat a missing owner line as
+    # UNKNOWN (fail closed).
+    owner = _clean_surface(str(getattr(entry, "session_id", "") or ""))
+    if owner:
+        lines.append(f"session: {owner}")
     goal = _clean_surface(entry.goal)
     if goal:
         lines.append(f"goal: {goal}")
@@ -422,6 +448,10 @@ def clear_continuation_marker_paths(base: "Path | str") -> list[Path]:
 
 
 def _live_state_block_is_substantive(block: str) -> bool:
+    # The `session:` owner line alone is NOT substantive: emitting an owner
+    # with no real focus/next_action carries no continuity, and treating it as
+    # substantive would let an otherwise-empty block survive a legitimate
+    # downgrade (an explicit clear).
     return any(
         line.startswith("focus: ") or line.startswith("next action: ")
         for line in block.splitlines()
@@ -447,11 +477,18 @@ def _resanitize_preserved_live_state(block: str) -> str:
     """A block re-read from disk may predate a marker-stripping fix; only
     re-use lines matching the exact fold-free shape this renderer emits,
     and reject any surviving marker-tag punctuation -- never launder disk
-    content back into the file unexamined."""
+    content back into the file unexamined.
+
+    The keep-list includes the ``session:`` owner line this renderer emits.
+    Without it the preserve-guard would silently strip the owner on the
+    second write, degrading every consumer's provenance check to UNKNOWN
+    (fail closed) -- i.e. the stamp would erase itself and continuity would
+    stop working after one cycle."""
     lines: list[str] = []
     for line in block.splitlines():
         if not (
-            line.startswith("goal: ")
+            line.startswith("session: ")
+            or line.startswith("goal: ")
             or line.startswith("focus: ")
             or line.startswith("next action: ")
         ):
