@@ -74,8 +74,16 @@ def cmd_session_start(args: argparse.Namespace) -> int:
             format_payload_as_markdown,
         )
         session_id = getattr(args, "session_id", "-") or "-"
+        # Profile scope (fork): the daemon composes this payload in its own
+        # process and serves every profile from there, so the scope must ride
+        # WITH the request. Read from the caller's env; absent = unscoped, which
+        # is exactly the old behaviour.
+        _rpc_params = {"session_id": session_id}
+        _scope = (os.environ.get("IAI_MCP_PROFILE") or "").strip()
+        if _scope and _scope != "all":
+            _rpc_params["profile"] = _scope
         resp = _cli._send_jsonrpc_request(
-            "session_start_payload", {"session_id": session_id}
+            "session_start_payload", _rpc_params
         )
         if not isinstance(resp, dict) or "result" not in resp:
             _cli.sys.stdout.write(_AVAILABILITY_MARKER_UNAVAILABLE)

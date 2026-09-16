@@ -343,6 +343,31 @@ def render_live_state_segment(*, fold_sensory: bool = True) -> str:
     owner = _clean_surface(str(getattr(entry, "session_id", "") or ""))
     if owner:
         lines.append(f"session: {owner}")
+
+    # ── Profile gate (fork) ────────────────────────────────────────────────
+    # This render reads the GLOBAL focal task, so the owner may belong to a
+    # DIFFERENT Hermes profile. The session-owner gate downstream compares
+    # session ids and cannot see that: a profile boundary crosses sessions by
+    # construction, so another profile's goal would ride through as "mine".
+    #
+    # Scoping the cache files is not sufficient either -- this path reads the
+    # focal task, not the cache. Refuse to render at all when the owner is
+    # attributable to another profile: an absent block is correct, another
+    # profile's goal presented as yours is not.
+    _scope = (os.environ.get("IAI_MCP_PROFILE") or "").strip()
+    if _scope and _scope != "all" and owner:
+        try:
+            from iai_mcp.profile_scope import session_profile_of
+
+            _owner_profile = session_profile_of(owner)
+        except Exception:  # noqa: BLE001 -- attribution must never break a render
+            _owner_profile = None
+        # Only a KNOWN mismatch suppresses. Unknown owner (a cron id, a
+        # pruned session) keeps today's behaviour -- the existing session-owner
+        # gate handles those, and suppressing on unknown would blank the block
+        # for every legitimate case the map cannot see.
+        if _owner_profile is not None and _owner_profile != _scope:
+            return ""
     goal = _clean_surface(entry.goal)
     if goal:
         lines.append(f"goal: {goal}")

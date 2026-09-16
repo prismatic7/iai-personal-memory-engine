@@ -123,15 +123,18 @@ wake_depth_sidecar_path="$HOME/.iai-mcp/.session-wake-depth"
 cache_path="$HOME/.iai-mcp/.session-start-payload.cached.md"
 # Profile-scoped cache (fork). A warmed cache is built for ONE profile's
 # memory scope, and the daemon writes a single unscoped file -- so under a
-# profile scope the scoped name is preferred and, when absent, this script
-# falls through to the live CLI compose (which applies the recall-level
-# filter). Correctness first: a warm cache is an optimisation and must never
-# serve one profile's memories to another.
+# profile scope the scoped name is used and, when absent, the unscoped cache is
+# REFUSED (not read as a fallback): it may hold another profile's memories, and
+# a warm cache is an optimisation that must never be an isolation hole. A miss
+# here falls through to the live CLI compose, which applies the recall filter.
 if [ -n "${IAI_MCP_PROFILE:-}" ] && [ "${IAI_MCP_PROFILE}" != "all" ]; then
   _prof_safe=$(printf '%s' "$IAI_MCP_PROFILE" | tr -c 'A-Za-z0-9_-' '_' | cut -c1-64)
   if [ -n "$_prof_safe" ]; then
-    _scoped="${cache_path%.md}.${_prof_safe}.md"
-    [ -f "$_scoped" ] && cache_path="$_scoped"
+    # Point at the scoped name unconditionally. If it does not exist the
+    # `-s` test below fails and this script takes the live path -- which is
+    # the correct outcome. Falling back to the unscoped file would serve
+    # foreign content under a scope.
+    cache_path="${cache_path%.md}.${_prof_safe}.md"
   fi
 fi
 stale_cache_fallback=""

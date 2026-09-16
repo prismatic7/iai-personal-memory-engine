@@ -2331,58 +2331,81 @@ def dispatch(store: MemoryStore, method: str, params: dict) -> dict:
     if method == "session_start_payload":
         from iai_mcp.session import assemble_session_start, SessionStartPayload
         sid = params.get("session_id", "-")
-        # Emptiness gate via the corpus-count cache (O(1) warm): a raw
-        # count_rows on the lilli engine re-scans every leaf page, and this
-        # gate sits on a per-call read path.
-        records_count = store.active_records_count()
-        if records_count == 0:
-            empty = SessionStartPayload(
-                l0="",
-                l1="",
-                l2=[],
-                rich_club="",
-                total_cached_tokens=0,
-                total_dynamic_tokens=1000,
-            )
-            return _payload_to_json(empty)
-        _graph, assignment, rc = retrieve.build_runtime_graph(store)
-        payload = assemble_session_start(
-            store, assignment, rc,
-            session_id=sid,
-            profile_state=_profile_state,
-        )
-
+        # ── Profile scope (fork) ───────────────────────────────────────────
+        # This payload is composed in the DAEMON's process, and the daemon
+        # serves every profile from that one process — so a caller's
+        # IAI_MCP_PROFILE never reaches here, and the scope must arrive with
+        # the request. A caller that omits `profile` gets the unscoped payload
+        # it has always had, so an older client is unaffected.
+        #
+        # The env var is the channel because render_live_state_segment() reads
+        # it directly; binding it here keeps the scope decision in ONE place
+        # rather than threading a parameter through the whole compose chain.
+        # Restored in `finally` so a concurrent request cannot observe it.
+        _req_profile = params.get("profile")
+        _req_profile = _req_profile.strip() if isinstance(_req_profile, str) else ""
+        _prev_profile = os.environ.get("IAI_MCP_PROFILE")
+        if _req_profile:
+            os.environ["IAI_MCP_PROFILE"] = _req_profile
         try:
-            from iai_mcp.user_model import (
-                UserModelPrefetcher,
-                load as _user_model_load,
-            )
-            from iai_mcp.daemon_config import _load_user_model_config
-            _user_model_cfg = _load_user_model_config()
-            _user_model = _user_model_load()
-            _prefetched_ids = UserModelPrefetcher().prefetch(
-                store, _user_model, top_k=_user_model_cfg.prefetch_top_k,
-            )
-            if _prefetched_ids:
-                _existing = set(payload.l2)
-                _new = [
-                    rid for rid in _prefetched_ids if rid not in _existing
-                ]
-                payload.l2 = _new + list(payload.l2)
-                _cap = len(_existing) + _user_model_cfg.prefetch_top_k
-                if len(payload.l2) > _cap:
-                    payload.l2 = payload.l2[:_cap]
-        except Exception as exc:  # noqa: BLE001 -- MCP boundary fail-safe
-            import logging
-            logging.getLogger(__name__).warning(
-                "user_model_prefetch_failed",
-                extra={
-                    "err_type": type(exc).__name__,
-                    "err": str(exc)[:120],
-                },
+            # Emptiness gate via the corpus-count cache (O(1) warm): a raw
+            # count_rows on the lilli engine re-scans every leaf page, and this
+            # gate sits on a per-call read path.
+            records_count = store.active_records_count()
+            if records_count == 0:
+                empty = SessionStartPayload(
+                    l0="",
+                    l1="",
+                    l2=[],
+                    rich_club="",
+                    total_cached_tokens=0,
+                    total_dynamic_tokens=1000,
+                )
+                return _payload_to_json(empty)
+            _graph, assignment, rc = retrieve.build_runtime_graph(store)
+            payload = assemble_session_start(
+                store, assignment, rc,
+                session_id=sid,
+                profile_state=_profile_state,
             )
 
-        return _payload_to_json(payload)
+            try:
+                from iai_mcp.user_model import (
+                    UserModelPrefetcher,
+                    load as _user_model_load,
+                )
+                from iai_mcp.daemon_config import _load_user_model_config
+                _user_model_cfg = _load_user_model_config()
+                _user_model = _user_model_load()
+                _prefetched_ids = UserModelPrefetcher().prefetch(
+                    store, _user_model, top_k=_user_model_cfg.prefetch_top_k,
+                )
+                if _prefetched_ids:
+                    _existing = set(payload.l2)
+                    _new = [
+                        rid for rid in _prefetched_ids if rid not in _existing
+                    ]
+                    payload.l2 = _new + list(payload.l2)
+                    _cap = len(_existing) + _user_model_cfg.prefetch_top_k
+                    if len(payload.l2) > _cap:
+                        payload.l2 = payload.l2[:_cap]
+            except Exception as exc:  # noqa: BLE001 -- MCP boundary fail-safe
+                import logging
+                logging.getLogger(__name__).warning(
+                    "user_model_prefetch_failed",
+                    extra={
+                        "err_type": type(exc).__name__,
+                        "err": str(exc)[:120],
+                    },
+                )
+
+            return _payload_to_json(payload)
+        finally:
+            if _req_profile:
+                if _prev_profile is None:
+                    os.environ.pop("IAI_MCP_PROFILE", None)
+                else:
+                    os.environ["IAI_MCP_PROFILE"] = _prev_profile
 
     if method == "session_refresh_if_stale":
         from iai_mcp.capture import (
