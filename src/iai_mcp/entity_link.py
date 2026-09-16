@@ -13,6 +13,7 @@ from the ranking degree — shared vocabulary must not manufacture hubs.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 from uuid import UUID
 
@@ -27,6 +28,55 @@ ENTITY_MAX_EDGES_PER_RUN = 500
 ENTITY_EDGE_WEIGHT = 0.3
 
 
+def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    """Read an int knob from the environment, falling back to `default`.
+
+    Mirrors the codebase's existing override convention (e.g.
+    `hippo/_db.py::_reembed_batch_size`): unset/invalid/out-of-range ->
+    default, never an exception on a consolidation path.
+    """
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return val if val >= minimum else default
+
+
+def _max_edges_per_run() -> int:
+    """Per-run edge-minting ceiling; `IAI_MCP_ENTITY_MAX_EDGES_PER_RUN`.
+
+    Why this is overridable: the ceiling is a HARD stop, and on a corpus
+    larger than a few thousand records it binds long before the corpus is
+    exhausted — a measured run stopped at exactly 500 having consumed 38 of
+    4,756 eligible tokens. Clustering quality is downstream of graph
+    connectivity, and connectivity is downstream of this. Raising it grows
+    edges roughly linearly at the same wall-clock cost; 0 disables the
+    ceiling entirely (mine every eligible token).
+    """
+    raw = os.environ.get("IAI_MCP_ENTITY_MAX_EDGES_PER_RUN")
+    if raw is not None:
+        try:
+            val = int(raw)
+        except (TypeError, ValueError):
+            val = ENTITY_MAX_EDGES_PER_RUN
+        return val if val >= 0 else ENTITY_MAX_EDGES_PER_RUN
+    return ENTITY_MAX_EDGES_PER_RUN
+
+
+def _max_df() -> int:
+    """Upper document-frequency bound; `IAI_MCP_ENTITY_MAX_DF`.
+
+    Tokens shared by MORE than this many records are treated as too common
+    to be entity-grade anchors. On a small corpus 8 is sensible; on a large
+    one it excludes most genuine mid-frequency anchors (a project name
+    mentioned across 20 notes is still a project name).
+    """
+    return _env_int("IAI_MCP_ENTITY_MAX_DF", ENTITY_MAX_DF)
+
+
 def _entity_grade(token: str) -> bool:
     return len(token) >= ENTITY_MIN_TOKEN_LEN and token.isalpha()
 
@@ -35,9 +85,9 @@ def mine_entity_edges(
     store: Any,
     *,
     min_df: int = ENTITY_MIN_DF,
-    max_df: int = ENTITY_MAX_DF,
+    max_df: int | None = None,
     max_pairs_per_token: int = ENTITY_MAX_PAIRS_PER_TOKEN,
-    max_edges_per_run: int = ENTITY_MAX_EDGES_PER_RUN,
+    max_edges_per_run: int | None = None,
 ) -> "dict[str, int]":
     """Mint entity_shared edges from the warm lexical postings.
 
@@ -55,6 +105,13 @@ def mine_entity_edges(
     idx = getattr(store, "_lexical_idx", None)
     if idx is None:
         return {"tokens_scanned": 0, "tokens_used": 0, "edges_minted": 0}
+
+    # Resolve None -> env-or-default. Explicit caller args still win, so the
+    # in-process A/B (passing values directly) is unaffected by the env.
+    if max_df is None:
+        max_df = _max_df()
+    if max_edges_per_run is None:
+        max_edges_per_run = _max_edges_per_run()
 
     postings = idx.iter_token_postings()
     tokens_used = 0
