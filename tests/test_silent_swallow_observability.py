@@ -462,3 +462,115 @@ def test_corrupt_header_spool_file_counted_and_logged(store, caplog):
         and corrupt.name in r.getMessage()
     ]
     assert hits, "the corrupt spool header must be logged with its file name"
+
+
+# ---------------------------------------------------------------------------
+# A spool file sealed under a RETIRED key is parked, not retried forever
+# ---------------------------------------------------------------------------
+
+
+def test_undecryptable_spool_file_is_parked_not_retried(store, caplog, monkeypatch):
+    """A spool file whose ciphertext is under a retired key (InvalidTag with a
+    key present) is moved to the terminal ``.permanent-failed-`` sink.
+
+    Regression guard for the drain-watchdog false alarm: before this, the
+    InvalidTag landed in the generic ValueError arm and was counted
+    ``files_corrupt`` with the file left in place — so the same file failed
+    every pass forever and the twice-daily drain watchdog exited non-zero on
+    every run. Retrying cannot help: the key that sealed the file is gone.
+    """
+    from iai_mcp.capture import (
+        SpoolLineUndecryptable,
+        _decode_spool_line,
+        deferred_captures_dir,
+        drain_active_live_captures,
+    )
+
+    deferred_dir = deferred_captures_dir()
+    deferred_dir.mkdir(parents=True, exist_ok=True)
+
+    # Seal a real header under a real key, then make the store unable to read
+    # it — exactly the state a `crypto rotate` leaves a not-yet-drained spool
+    # file in: valid ciphertext, sealed with a key that is now gone.
+    from iai_mcp import crypto
+    from iai_mcp.capture import _SPOOL_AAD
+
+    retired_key = b"\x11" * crypto.KEY_BYTES
+    sealed = crypto.encrypt_field(
+        '{"version": 1, "session_id": "s"}', retired_key, _SPOOL_AAD
+    )
+    stranded = deferred_dir / "33333333-3333-4333-8333-333333333333.live.jsonl"
+    stranded.write_text(sealed + "\n")
+
+    # A DIFFERENT key is present in this process, so _spool_key() returns bytes
+    # (NOT SpoolKeyUnavailable) and the attempt fails with InvalidTag.
+    monkeypatch.setattr(
+        "iai_mcp.capture._spool_key",
+        lambda: b"\x22" * crypto.KEY_BYTES,
+        raising=False,
+    )
+
+    # Sanity: the decode path must classify this as undecryptable, not merely
+    # corrupt JSON — that distinction is the whole point of the fix.
+    try:
+        _decode_spool_line(sealed)
+        raise AssertionError("expected SpoolLineUndecryptable")
+    except SpoolLineUndecryptable:
+        pass
+
+    caplog.set_level(logging.WARNING, logger="iai_mcp.capture")
+    counts = drain_active_live_captures(store, exclude_session_id="-")
+
+    assert counts["files_undecryptable"] == 1, (
+        f"an undecryptable header must be counted as such: {counts}"
+    )
+    assert counts["files_corrupt"] == 0, (
+        f"it must NOT be bucketed as corrupt JSON: {counts}"
+    )
+    assert not stranded.exists(), "the stranded file must leave the live scan"
+
+    parked = list(deferred_dir.glob("*.permanent-failed-*.jsonl"))
+    assert len(parked) == 1, f"expected exactly one parked file: {parked}"
+    # Lossless: the bytes are kept for a deliberate operator recovery.
+    assert parked[0].read_text() == sealed + "\n", "parking must preserve bytes"
+
+    assert any(
+        r.levelno == logging.WARNING and "parked" in r.getMessage()
+        for r in caplog.records
+        if r.name == "iai_mcp.capture"
+    ), "parking must be logged with its file name"
+
+
+def test_undecryptable_spool_is_not_retried_on_a_second_pass(store, monkeypatch):
+    """The parked file must not come back: a second drain pass sees nothing.
+
+    This is the behaviour the watchdog depends on — a parked file stops
+    re-triggering the incomplete-drain alarm.
+    """
+    from iai_mcp import crypto
+    from iai_mcp.capture import _SPOOL_AAD, deferred_captures_dir, drain_active_live_captures
+
+    deferred_dir = deferred_captures_dir()
+    deferred_dir.mkdir(parents=True, exist_ok=True)
+    sealed = crypto.encrypt_field(
+        '{"version": 1, "session_id": "s"}',
+        b"\x11" * crypto.KEY_BYTES,
+        _SPOOL_AAD,
+    )
+    stranded = deferred_dir / "44444444-4444-4444-8444-444444444444.live.jsonl"
+    stranded.write_text(sealed + "\n")
+
+    monkeypatch.setattr(
+        "iai_mcp.capture._spool_key",
+        lambda: b"\x22" * crypto.KEY_BYTES,
+        raising=False,
+    )
+
+    first = drain_active_live_captures(store, exclude_session_id="-")
+    assert first["files_undecryptable"] == 1, first
+
+    second = drain_active_live_captures(store, exclude_session_id="-")
+    assert second["files_undecryptable"] == 0, (
+        f"the parked file must not be re-scanned: {second}"
+    )
+    assert second["files_corrupt"] == 0, second

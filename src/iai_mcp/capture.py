@@ -106,6 +106,7 @@ _DRAIN_INCOMPLETE_KEYS = (
     "files_failed",
     "files_key_deferred",
     "files_corrupt",
+    "files_undecryptable",
     "events_skipped_insert_failed",
 )
 
@@ -1525,6 +1526,21 @@ class SpoolKeyUnavailable(RuntimeError):
     it toward permanent failure, never advance a drain offset past it."""
 
 
+class SpoolLineUndecryptable(ValueError):
+    """Encrypted spool line AND a key WAS available, but it does not decrypt
+    (InvalidTag). Terminal, not transient: the ciphertext is under a key this
+    store no longer holds — typically a spool file written BEFORE a
+    ``crypto rotate`` and never drained first. Retrying cannot ever fix it, so
+    readers must move the file to a terminal sink instead of re-scanning it
+    every pass.
+
+    Subclasses ValueError deliberately, so every existing
+    skip-this-line / skip-this-file ``except (json.JSONDecodeError, ValueError)``
+    shape keeps holding unchanged. It exists only so the drain can tell a
+    decrypt failure (terminal) apart from a JSON parse failure (possibly a
+    torn write, worth retrying)."""
+
+
 def _spool_root() -> Path:
     # Spool dir AND spool key resolve from this one root — the default home
     # store — regardless of IAI_MCP_STORE. Hook writers often run without
@@ -1679,9 +1695,14 @@ def _decode_spool_line(line: str) -> str:
     except ValueError:
         raise
     except Exception as exc:
-        # InvalidTag and friends become ValueError so every existing
-        # skip-this-line/skip-this-file except-shape keeps holding.
-        raise ValueError(
+        # InvalidTag and friends become SpoolLineUndecryptable — a ValueError,
+        # so every existing skip-this-line/skip-this-file except-shape keeps
+        # holding — but distinguishable, because unlike a JSON parse failure a
+        # decrypt failure is TERMINAL: the ciphertext is under a key this store
+        # no longer holds. A `crypto rotate` that lands before the spool drains
+        # strands the file forever, and retrying it every pass is what makes it
+        # look "stuck" to the drain watchdog.
+        raise SpoolLineUndecryptable(
             f"spool line decrypt failed: {type(exc).__name__}"
         ) from exc
 
@@ -3074,6 +3095,7 @@ def drain_active_live_captures(
         "events_reinforced": 0,
         "events_skipped": 0,
         "files_corrupt": 0,
+        "files_undecryptable": 0,
     }
     if not _LIVE_DRAIN_SINGLE_FLIGHT_LOCK.acquire(blocking=False):
         counts["skipped_single_flight"] = 1
@@ -3084,6 +3106,74 @@ def drain_active_live_captures(
         )
     finally:
         _LIVE_DRAIN_SINGLE_FLIGHT_LOCK.release()
+
+
+def _park_undecryptable_spool_file(
+    fpath: Path,
+    store: "MemoryStore",
+    *,
+    log_path: Path | None = None,
+) -> Path | None:
+    """Park a spool file whose ciphertext this store can never read again.
+
+    A ``crypto rotate`` that lands BEFORE the spool drains strands the file:
+    its lines are sealed under the retired key, so ``_decode_spool_line``
+    raises InvalidTag on every pass, forever. Retrying cannot help — the only
+    copy of that key is gone — so the file must leave the live scan or it
+    re-triggers the drain watchdog on every single run (a permanent false
+    alarm, which is worse than no alarm).
+
+    Destination is the ``.permanent-failed-`` convention, NOT ``.quarantine/``:
+    the quarantine dir is re-consumed by the offline drain, so parking there
+    would just relocate the retry loop. A ``permanent-failed-`` file is skipped
+    by every routine scan and is only touched by the explicit
+    ``drain_permanent_failed_files()`` recovery path, so the bytes are kept and
+    an operator can still act on them deliberately.
+
+    Returns the new path, or None if the move failed (the caller then leaves
+    the file alone rather than losing it).
+    """
+    try:
+        ts_str = str(int(time.time()))
+        stem = fpath.stem
+        # If it is already in the terminal shape, do not nest the suffix.
+        m = _FAILED_SHAPE_RE.match(fpath.name)
+        if m:
+            stem = m.group(1)
+            ts_str = m.group(2)
+        target = fpath.with_name(f"{stem}.permanent-failed-{ts_str}.jsonl")
+        fpath.rename(target)
+    except OSError as exc:
+        log.warning("undecryptable_spool_park_failed %s: %s", fpath.name, exc)
+        return None
+
+    try:
+        from iai_mcp.events import write_event
+
+        write_event(
+            store,
+            "permanent_capture_failure",
+            {
+                "file": target.name,
+                "first_error": "spool_undecryptable_key_rotated",
+                "attempts": 0,
+            },
+            severity="critical",
+            domain="ops",
+        )
+    except Exception as exc:  # noqa: BLE001 -- fail-safe boundary
+        log.debug("undecryptable_spool_event_failed: %s", exc)
+        if log_path is not None:
+            try:
+                with log_path.open("a", encoding="utf-8") as logf:
+                    logf.write(
+                        f"{datetime.now(timezone.utc).isoformat()} "
+                        f"undecryptable-spool-parked {target.name}\n"
+                    )
+            except (OSError, ValueError) as exc2:
+                log.debug("undecryptable_spool_log_failed: %s", exc2)
+
+    return target
 
 
 def _drain_active_live_captures_locked(
@@ -3121,6 +3211,31 @@ def _drain_active_live_captures_locked(
         except SpoolKeyUnavailable:
             # Leave the file AND its offset untouched for a keyed pass.
             counts["files_key_deferred"] = counts.get("files_key_deferred", 0) + 1
+            continue
+        except SpoolLineUndecryptable as exc:
+            # A key was available and the line still would not open: the
+            # ciphertext is under a retired key, so no later pass can ever
+            # read it. Park it terminally rather than re-scanning forever.
+            # MUST precede the ValueError arm below — this is a ValueError.
+            counts["files_undecryptable"] = (
+                counts.get("files_undecryptable", 0) + 1
+            )
+            parked = _park_undecryptable_spool_file(
+                fpath, store, log_path=state_dir / "undecryptable-parked.log"
+            )
+            if parked is not None:
+                log.warning(
+                    "undecryptable spool file parked (key rotated): %s -> %s",
+                    fpath.name,
+                    parked.name,
+                )
+            else:
+                log.warning(
+                    "undecryptable spool file could not be parked, "
+                    "left in place: %s (%s)",
+                    fpath.name,
+                    exc,
+                )
             continue
         except (json.JSONDecodeError, ValueError):
             counts["files_corrupt"] += 1
