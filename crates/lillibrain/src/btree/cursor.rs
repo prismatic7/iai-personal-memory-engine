@@ -8,11 +8,11 @@
 
 use crate::btree::overflow::{free_overflow_chain, read_overflow_chain, write_overflow_chain};
 use crate::btree::page::{
-    empty_leaf, encode_inline_cell, encode_spilled_cell, get_sibling, on_page_cell_size, page_kind,
-    raw_leaf_cell_bytes, read_interior_header, read_interior_node, read_leaf_cell_raw,
-    read_leaf_header, read_leaf_keys, read_spilled_pointer, set_sibling, write_leaf_from_raw,
-    LeafCellRaw, PageKind, LEAF_NUM_CELLS_OFFSET, LEAF_PTR_ARRAY_START, LEAF_SIBLING_OFFSET,
-    USABLE_END,
+    empty_leaf, encode_inline_cell, encode_spilled_cell, get_sibling, interior_child_index,
+    interior_child_ptr, leaf_bisect_left, on_page_cell_size, page_kind, raw_leaf_cell_bytes,
+    read_interior_header, read_leaf_cell_raw, read_leaf_header, read_spilled_pointer, set_sibling,
+    write_leaf_from_raw, LeafCellRaw, PageKind, LEAF_NUM_CELLS_OFFSET, LEAF_PTR_ARRAY_START,
+    LEAF_SIBLING_OFFSET, USABLE_END,
 };
 use crate::consts::OVERFLOW_THRESHOLD;
 use crate::error::{Result, StoreError};
@@ -62,23 +62,35 @@ impl<'p> Cursor<'p> {
     // -----------------------------------------------------------------------
 
     /// Descend from the root to the leaf that should hold `key`, recording the
-    /// `(page_no, child_index)` path. Returns `(leaf_page_no, insert_index)`.
-    fn move_to(&mut self, key: i64) -> Result<(u32, usize)> {
+    /// `(page_no, child_index)` path. Returns the leaf page number, the resolved
+    /// index, and the leaf page's bytes.
+    ///
+    /// Returning the leaf buffer matters: the descent has already read and
+    /// cloned that page by the time it identifies it as a leaf, so a caller that
+    /// re-reads by page number pays a SECOND 8 KiB clone for one logical leaf
+    /// access — on every point lookup and every insert. Handing the buffer back
+    /// is a move, not a copy.
+    fn move_to(&mut self, key: i64) -> Result<(u32, usize, Vec<u8>)> {
         self.path_stack.clear();
         let mut page_no = self.root_page_no;
         loop {
             let page = self.pager.read_page(page_no)?;
             match page_kind(&page)? {
                 PageKind::Leaf => {
-                    let keys = read_leaf_keys(&page, OVERFLOW_THRESHOLD)?;
-                    let idx = bisect_left(&keys, key);
-                    return Ok((page_no, idx));
+                    // In-place binary search: the descent needs only a cell
+                    // INDEX, yet `read_leaf_keys` would build a `Vec<i64>` sized
+                    // to the page's cell count and discard it immediately — once
+                    // per point lookup, per insert, per delete.
+                    let idx = leaf_bisect_left(&page, key, OVERFLOW_THRESHOLD)?;
+                    return Ok((page_no, idx, page));
                 }
                 PageKind::Interior => {
-                    let node = read_interior_node(&page)?;
-                    let child_idx = bisect_right(&node.keys, key);
+                    // Likewise in place: `read_interior_node` would allocate a
+                    // key Vec AND a child Vec per level, when all the descent
+                    // needs is which child to follow.
+                    let child_idx = interior_child_index(&page, key)?;
                     self.path_stack.push((page_no, child_idx));
-                    page_no = node.children[child_idx];
+                    page_no = interior_child_ptr(&page, child_idx)?;
                 }
             }
         }
@@ -91,8 +103,10 @@ impl<'p> Cursor<'p> {
             match page_kind(&page)? {
                 PageKind::Leaf => return Ok(page_no),
                 PageKind::Interior => {
-                    let node = read_interior_node(&page)?;
-                    page_no = node.children[0];
+                    // Child 0 is the first cell's pointer — read it in place
+                    // rather than materialising the node's two Vecs to take
+                    // `children[0]`.
+                    page_no = interior_child_ptr(&page, 0)?;
                 }
             }
         }
@@ -136,9 +150,15 @@ impl<'p> Cursor<'p> {
 
     /// Return the value bytes for `key`, reassembling an overflow chain when the
     /// payload spilled. `None` if the key is absent.
+    ///
+    /// The descent returns the leaf page's NUMBER, so a naive `get` re-reads that
+    /// page straight away: two `read_page` calls per lookup, each cloning an 8 KiB
+    /// buffer, for one logical leaf access. `seek` returns the resolved
+    /// `(page, index)` instead, collapsing that to a single read.
     pub fn get(&mut self, key: i64) -> Result<Option<Vec<u8>>> {
-        let (leaf_page_no, idx) = self.move_to(key)?;
-        let page = self.pager.read_page(leaf_page_no)?;
+        let Some((page, idx)) = self.seek(key)? else {
+            return Ok(None);
+        };
         let hdr = read_leaf_header(&page);
         if idx >= hdr.num_cells {
             return Ok(None);
@@ -148,6 +168,17 @@ impl<'p> Cursor<'p> {
             return Ok(None);
         }
         Ok(Some(self.payload_of(&page, &raw)?))
+    }
+
+    /// Descend to the leaf holding `key` and return that leaf's bytes together
+    /// with the index the search resolved to — one page read, not two.
+    ///
+    /// No page-number guard is needed: `Pager::read_page` rejects page 0 as out
+    /// of bounds, so a descent into a root of 0 has already returned a typed
+    /// error rather than a leaf number the caller would have to notice.
+    fn seek(&mut self, key: i64) -> Result<Option<(Vec<u8>, usize)>> {
+        let (_leaf_page_no, idx, page) = self.move_to(key)?;
+        Ok(Some((page, idx)))
     }
 
     /// Materialize a leaf cell's payload, following the overflow chain if spilled.
@@ -175,47 +206,60 @@ impl<'p> Cursor<'p> {
     /// existing cell was replaced in place — the signal the store's incremental
     /// per-tree cell-count cache adjusts by.
     pub fn insert(&mut self, key: i64, value: &[u8]) -> Result<bool> {
-        let (leaf_page_no, insert_idx) = self.move_to(key)?;
-        let page = self.pager.read_page(leaf_page_no)?;
-        let keys = read_leaf_keys(&page, OVERFLOW_THRESHOLD)?;
+        let (leaf_page_no, insert_idx, page) = self.move_to(key)?;
+        // `num_cells` from the header plus ONE in-place cell decode replaces a
+        // `Vec<i64>` holding every key on the page — built only to be indexed once
+        // and to have its length read. Ascending appends descend to the rightmost
+        // leaf of the whole table, so that array is the widest on the hot write
+        // path. `read_leaf_cell_raw` decodes framing in place and allocates
+        // nothing.
+        let num_cells = read_leaf_header(&page).num_cells;
 
         // Replace path: the key already exists at insert_idx.
-        if insert_idx < keys.len() && keys[insert_idx] == key {
+        if insert_idx < num_cells {
             let old = read_leaf_cell_raw(&page, insert_idx, OVERFLOW_THRESHOLD)?;
-            if old.spilled {
-                let first_ovf = read_spilled_pointer(&page, old.payload_start)?;
-                free_overflow_chain(self.pager, first_ovf)?;
-            }
-            if self.leaf_has_room_for(&page, keys.len(), Some(insert_idx), key, value)? {
+            if old.key == key {
+                if old.spilled {
+                    let first_ovf = read_spilled_pointer(&page, old.payload_start)?;
+                    free_overflow_chain(self.pager, first_ovf)?;
+                }
+                if self.leaf_has_room_for(&page, num_cells, Some(insert_idx), key, value)? {
+                    let sibling = get_sibling(&page);
+                    let new_page = self.rebuild_leaf(
+                        &page,
+                        num_cells,
+                        Some(insert_idx),
+                        insert_idx,
+                        key,
+                        value,
+                        sibling,
+                    )?;
+                    self.pager.write_page(leaf_page_no, &new_page)?;
+                    return Ok(false);
+                }
+                // Replacement too large for the page: slim out the old cell, then split.
                 let sibling = get_sibling(&page);
-                let new_page = self.rebuild_leaf(
-                    &page,
-                    keys.len(),
-                    Some(insert_idx),
-                    insert_idx,
+                let slimmed = self.rebuild_leaf_excluding(&page, num_cells, insert_idx, sibling)?;
+                self.pager.write_page(leaf_page_no, &slimmed)?;
+                let path = self.path_stack.clone();
+                crate::btree::split::leaf_split_and_insert(
+                    self.pager,
+                    path,
+                    leaf_page_no,
                     key,
                     value,
-                    sibling,
                 )?;
-                self.pager.write_page(leaf_page_no, &new_page)?;
                 return Ok(false);
             }
-            // Replacement too large for the page: slim out the old cell, then split.
-            let sibling = get_sibling(&page);
-            let slimmed = self.rebuild_leaf_excluding(&page, keys.len(), insert_idx, sibling)?;
-            self.pager.write_page(leaf_page_no, &slimmed)?;
-            let path = self.path_stack.clone();
-            crate::btree::split::leaf_split_and_insert(self.pager, path, leaf_page_no, key, value)?;
-            return Ok(false);
         }
 
         // Fresh insert: fits if byte room AND below the cell ceiling.
-        let fits = self.leaf_has_room_for(&page, keys.len(), None, key, value)?
-            && keys.len() < leaf_max_cells();
+        let fits = self.leaf_has_room_for(&page, num_cells, None, key, value)?
+            && num_cells < leaf_max_cells();
         if fits {
             let sibling = get_sibling(&page);
             let new_page =
-                self.rebuild_leaf(&page, keys.len(), None, insert_idx, key, value, sibling)?;
+                self.rebuild_leaf(&page, num_cells, None, insert_idx, key, value, sibling)?;
             self.pager.write_page(leaf_page_no, &new_page)?;
             return Ok(true);
         }
@@ -328,7 +372,7 @@ impl<'p> Cursor<'p> {
     /// absent-key no-op — the signal the store's incremental per-tree
     /// cell-count cache adjusts by.
     pub fn delete(&mut self, key: i64) -> Result<bool> {
-        let (leaf_page_no, _idx) = self.move_to(key)?;
+        let (leaf_page_no, _idx, _leaf_before) = self.move_to(key)?;
         let removed = crate::btree::delete::remove_cell_from_leaf(self.pager, leaf_page_no, key)?;
         if !removed {
             return Ok(false);
@@ -336,6 +380,9 @@ impl<'p> Cursor<'p> {
 
         let is_root_leaf = leaf_page_no == self.root_page_no;
         if !is_root_leaf {
+            // Re-read rather than reuse the descent's buffer: the removal above
+            // has already rewritten this page, so the buffer the descent holds is
+            // the PRE-removal image and its cell count would be stale.
             let page = self.pager.read_page(leaf_page_no)?;
             let num_cells = read_leaf_header(&page).num_cells;
             let mut underflow = crate::btree::delete::leaf_underflows(&page, num_cells)?;
@@ -402,7 +449,7 @@ impl<'p> Cursor<'p> {
         // pathological whole-chain read.
         let page_budget = 4usize.saturating_add(keys.len().saturating_mul(3));
         let mut pages_visited = 0usize;
-        let (mut page_no, _) = self.move_to(keys[0])?;
+        let (mut page_no, _, _leaf) = self.move_to(keys[0])?;
         let mut ki = 0usize;
         while page_no != 0 && ki < keys.len() && pages_visited < page_budget {
             let page = self.pager.read_page_scan(page_no)?;
@@ -539,7 +586,7 @@ impl<'p> Cursor<'p> {
         if lo > hi {
             return Ok(out);
         }
-        let (mut page_no, _start_idx) = self.move_to(lo)?;
+        let (mut page_no, _start_idx, _leaf) = self.move_to(lo)?;
         while page_no != 0 {
             let page = self.pager.read_page(page_no)?;
             let hdr = read_leaf_header(&page);

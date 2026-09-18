@@ -512,6 +512,50 @@ mod laws {
             prop_assert_eq!(back, hv);
         }
 
+        /// Differential gate for the packed-domain `permute`.
+        ///
+        /// `bsc_permute_round_trip` above is a round-trip LAW: it holds for any
+        /// self-consistent direction/asymmetry convention, so it cannot catch a
+        /// wrong rotate direction, an off-by-one byte offset, or a swapped
+        /// residual-bit order. The golden table pins the convention but only on
+        /// a handful of shifts over a single vector. This asserts the packed
+        /// kernel against the ORIGINAL unpack/roll/repack body — the scalar
+        /// definition, inlined here as the oracle — across lengths and shifts.
+        ///
+        /// `shift` sweeps past n in both directions and across the r = 0 case
+        /// (byte-aligned rotations) so both the `r == 0` branch and the
+        /// cross-byte composition, including wrap at both ends, are driven.
+        #[test]
+        fn bsc_permute_matches_scalar_reference(
+            hv in proptest::collection::vec(any::<u8>(), 1..64),
+            shift in -1000i64..1000,
+        ) {
+            // The oracle: exactly the implementation the packed form replaced.
+            fn reference(hv: &[u8], shift: i64) -> Vec<u8> {
+                let mut bits = Vec::with_capacity(hv.len() * 8);
+                for &byte in hv {
+                    for s in (0..8).rev() {
+                        bits.push((byte >> s) & 1);
+                    }
+                }
+                let n = bits.len() as i64;
+                let s = ((shift % n) + n) % n;
+                let mut rolled = vec![0u8; bits.len()];
+                for (i, r) in rolled.iter_mut().enumerate() {
+                    *r = bits[(((i as i64 - s) % n + n) % n) as usize];
+                }
+                let mut out = vec![0u8; bits.len().div_ceil(8)];
+                for (i, &bit) in rolled.iter().enumerate() {
+                    if bit & 1 != 0 {
+                        out[i / 8] |= 1 << (7 - (i % 8));
+                    }
+                }
+                out
+            }
+
+            prop_assert_eq!(bsc::permute_impl(&hv, shift), reference(&hv, shift));
+        }
+
         #[test]
         fn fhrr_bind_unbind_round_trip(
             a in proptest::collection::vec(any::<u8>(), 32),

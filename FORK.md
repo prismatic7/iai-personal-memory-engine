@@ -134,20 +134,100 @@ both stream, which cuts peak memory on large stores.
 
 ## Relationship to the running install
 
-The live daemon on the maintainer's machine runs a PyPI install patched in place via
-`~/Development/iai-pme-venv/patches/reapply.sh`, which carries a subset of the above. This
-branch is the durable home for that work; `reapply.sh` is retired once the fork is
-installed directly.
+The live daemon on the maintainer's machine runs this branch **installed as a wheel**
+into `~/Development/iai-pme-venv` (non-editable — the checkout has no generated
+`src/iai_mcp/_wrapper/`, so an editable install leaves the MCP path missing). The old
+`patches/reapply.sh` in-place-patching era is over; `FORK.md` is now the record and the
+wheel is the artefact.
 
-Installing this branch into a venv that already provides the `iai_mcp_native` extension:
+### Deploying a change to the live daemon
+
+**Anything under `crates/` requires a native rebuild.** Python-only changes still need
+the wheel path, because the daemon, both Hermes MCP configs and the CLI all load
+`iai_mcp` from the venv's `site-packages` by absolute path — a source checkout alone
+changes nothing.
 
 ```bash
-PYTHONPATH=~/path/to/iai-personal-memory-engine/src \
-  ~/Development/iai-pme-venv/bin/python -m iai_mcp.cli daemon status
+cd ~/Development/iai-personal-memory-engine
+
+# 1. Back up the store AND the installed .so (the rollback artefact).
+BK=~/Development/iai-deploy-backup-$(date +%Y%m%d-%H%M%S); mkdir -p "$BK"
+cp ~/.iai-mcp/hippo/brain.sqlite3{,-wal} ~/.iai-mcp/hippo/records.{colindex,hnsw} "$BK"/
+cp ~/.iai-mcp/.crypto.key "$BK"/
+cp ~/Development/iai-pme-venv/lib/python3.11/site-packages/iai_mcp_native.cpython-311-darwin.so \
+   "$BK"/iai_mcp_native.PRE_DEPLOY.so
+
+# 2. Build the wheel (recompiles the extension from crates/ — ~2 min warm).
+NODE_ENV=development IAI_MCP_WRAPPER_PREBUILT=1 uv build --wheel \
+  --python ~/Development/iai-pme-venv/bin/python --out-dir /tmp/iai-deploy-wheels
+
+# 3. VERIFY the new .so is really in the wheel before installing.
+mkdir -p /tmp/wc && (cd /tmp/wc && unzip -oq /tmp/iai-deploy-wheels/*.whl)
+shasum -a 256 /tmp/wc/iai_mcp_native*.so   # must differ from the installed one
+
+# 4. Stop, install, start.
+~/Development/iai-pme-venv/bin/iai-mcp daemon stop
+uv pip install --python ~/Development/iai-pme-venv/bin/python --reinstall \
+  /tmp/iai-deploy-wheels/iai_pme-3.2.3-cp311-cp311-macosx_11_0_arm64.whl
+~/Development/iai-pme-venv/bin/iai-mcp daemon start
+
+# 5. Poll until it actually answers (boot warmup takes ~20-60 s; an immediate
+#    `daemon status` prints "daemon not running" and is NOT a failed start).
+for i in $(seq 1 24); do
+  ~/Development/iai-pme-venv/bin/iai-mcp daemon status 2>&1 | grep -q "state:" && break
+  sleep 10
+done
 ```
 
-That works because the venv supplies the native extension and runtime deps while this tree
-shadows the Python modules.
+**⚠️ The wheel cache the nightly guard restores from.** `iai-fork-install-guard.sh`
+repairs a clobbered install from `~/Development/iai-pme-venv/wheels/`. If that cached
+wheel is older than the change you just deployed, the guard silently **rolls the native
+engine back**. After every deploy that touches `crates/`, refresh the cache and confirm
+the `.so` inside it:
+
+```bash
+cp /tmp/iai-deploy-wheels/*.whl ~/Development/iai-pme-venv/wheels/
+# then unzip it and hash the .so again — a same-named wheel is not sufficient proof
+```
+
+A wheel's *file* hash changes on every build (zip timestamps), so file hashes cannot
+tell you which engine is inside. **Always unzip and hash the `.so`.**
+
+### Verifying a deploy took
+
+Neither the daemon's start time nor the install timestamp proves which `.so` is live.
+Check the mapping directly:
+
+```bash
+PID=$(pgrep -f iai_mcp.daemon)
+lsof -p "$PID" | grep iai_mcp_native            # inode + size the daemon holds
+stat -f "inode=%i size=%z" <the installed .so>  # must match
+```
+
+Then confirm data integrity and the write path, both **lock-free** (the daemon holds an
+exclusive lock, so `HippoDB(...)` raises `HippoLockHeldError` — use
+`get_lilli_raw_conn(path, read_only=True)`):
+
+- Record and edge counts unchanged from the pre-deploy baseline.
+- The `tests/` lanes that exercise the engine
+  (`test_native_guard`, `test_lillibrain_btree_insert_split`,
+  `test_lillibrain_btree_delete_merge`, `test_lillibrain_btree_max_key`,
+  `test_lillibrain_rust_parity`, `test_lillibrain_rust_linearity`,
+  `test_lillibrain_connection_concurrency`, `test_lillibrain_corruption_surfaces`)
+  green with `IAI_MCP_STORE` pointed at a throwaway dir.
+- `iai-fork-install-guard.sh` silent (exit 0, empty stdout = healthy).
+
+`tests/test_engine_differential_fuzz.py` needs `hypothesis`, which is not installed in
+the runtime venv; it fails at *collection*, not on a real assertion. Drop it from the
+lane rather than treating the collection error as a regression.
+
+### Pre-flight without touching the live install
+
+To validate a new `.so` against real data before deploying: copy the store, then load
+the candidate `.so` from its own directory with that directory first on `sys.path`.
+Both engines read the copy independently and their counts must agree exactly —
+16,038 records / 47,273 edges on the 2026-09-17 store. This catches a broken engine
+before it is anywhere near the live store.
 
 ## Notes carried over from the sdist-based era
 

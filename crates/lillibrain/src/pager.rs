@@ -704,9 +704,20 @@ impl Pager {
     }
 
     /// Read a named big-endian u32 header field from page 1.
+    ///
+    /// Reads the field IN PLACE from the resident header page rather than
+    /// cloning the 8 KiB buffer to extract four bytes. [`Pager::db_size`] and
+    /// friends are called on hot paths — [`Pager::extend_file`] calls `db_size`
+    /// once per page allocation, so on a bulk append this was one discarded 8 KiB
+    /// clone per page written.
     fn read_header_u32(&self, offset: usize) -> Result<u32> {
         let mut inner = self.inner.lock();
-        let buf = self.ensure_cached(&mut inner, 1)?;
+        self.ensure_present(&mut inner, HEADER_PAGE)?;
+        let buf = &inner
+            .cache
+            .get(&HEADER_PAGE)
+            .expect("header resident after ensure_present")
+            .buf;
         Ok(u32::from_be_bytes(
             buf[offset..offset + 4].try_into().unwrap(),
         ))
@@ -782,16 +793,47 @@ impl Pager {
         self.read_counter
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut inner = self.inner.lock();
-        let header = self.ensure_cached(&mut inner, 1)?;
-        let db_size = u32::from_be_bytes(
-            header[HDR_DB_SIZE_OFFSET..HDR_DB_SIZE_OFFSET + 4]
-                .try_into()
-                .unwrap(),
-        );
+        let db_size = self.db_size_cached(&mut inner)?;
         if page_no == 0 || page_no > db_size {
+            // The bounds check consults the CACHED header, and a cache hit never
+            // re-validates the snapshot fence. A read-only reader can therefore
+            // hold generation N's header (db_size = 31) while an interior node
+            // it cached from generation N+1 legitimately points at page 32: a
+            // concurrent checkpoint grew the file under it. On that path the
+            // page number is NOT corrupt — the reader's view is simply a
+            // generation behind — so consult the fence before reporting a
+            // bounds violation, and report the accurate, retryable error class.
+            //
+            // Re-validating only here keeps the check off the hot path: a
+            // successful read pays nothing, and a genuine out-of-range
+            // reference (fence intact) still reports `PageOutOfBounds`.
+            self.validate_ro_snapshot_fence()?;
             return Err(StoreError::PageOutOfBounds { page_no, db_size });
         }
         self.ensure_cached(&mut inner, page_no)
+    }
+
+    /// `db_size` read IN PLACE from the resident header page, without cloning
+    /// the 8 KiB header buffer out of the cache.
+    ///
+    /// The bound check on every [`Pager::read_page`] needs four bytes of the
+    /// header, and `read_page` is the hottest path in the pager. Cloning the
+    /// whole page to read them doubled the per-read buffer traffic for no
+    /// consumer: the caller wanted the *requested* page, never the header. The
+    /// page integrity guarantee is unchanged — `ensure_present` CRC-verifies a
+    /// miss before the bytes are cached, exactly as `ensure_cached` did.
+    fn db_size_cached(&self, inner: &mut Inner) -> Result<u32> {
+        self.ensure_present(inner, HEADER_PAGE)?;
+        let buf = &inner
+            .cache
+            .get(&HEADER_PAGE)
+            .expect("header resident after ensure_present")
+            .buf;
+        Ok(u32::from_be_bytes(
+            buf[HDR_DB_SIZE_OFFSET..HDR_DB_SIZE_OFFSET + 4]
+                .try_into()
+                .unwrap(),
+        ))
     }
 
     /// Load a page's bytes from the WAL overlay / live WAL / main file and verify

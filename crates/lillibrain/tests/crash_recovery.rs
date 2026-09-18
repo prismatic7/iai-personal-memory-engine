@@ -505,6 +505,17 @@ fn ro_reader_under_concurrent_checkpoint_is_consistent_or_typed_error() {
                 // The fence (or the per-page checksum) reported the window.
                 saw_typed_error = true;
             }
+            // The snapshot fence is the other typed outcome of this window: a
+            // main-file fallback that finds the file size moved under a
+            // concurrent checkpoint. It is an equally valid "the window was
+            // detected" result — see
+            // `ro_reader_returns_typed_error_when_checkpoint_advances_after_open`,
+            // which asserts this variant directly. Omitting it here made this
+            // test fail whenever the fence (rather than the checksum) happened
+            // to fire first, which is the more common ordering.
+            Err(StoreError::SnapshotFence { .. }) => {
+                saw_typed_error = true;
+            }
             Err(other) => panic!("unexpected error kind: {other:?}"),
         }
     }

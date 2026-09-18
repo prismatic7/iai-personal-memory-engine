@@ -88,18 +88,32 @@ pub fn bundle_impl(bound_hvs: &[Vec<u8>], d: usize) -> Result<Vec<u8>, HvError> 
 
     // Bits needed to hold a count up to n (n itself, so width = floor(log2 n)+1).
     let bit_width = (u32::BITS - n.leading_zeros()).max(1) as usize;
+    // Per-word scratch for the bit-sliced counter ladder, hoisted out of the
+    // word loop and reused (see the re-zero below). `n` is a u32, so the count
+    // never needs more than 32 planes — a fixed array always fits and the hot
+    // loop allocates nothing. Only the first `bit_width` lanes are ever touched.
+    let mut planes = [0u64; u32::BITS as usize];
 
     for w in 0..n_words {
         let off = w * 8;
         // planes[k] = bit k of the per-position count, across all 64 positions
         // in this word — a bit-sliced binary-counter network.
-        let mut planes = vec![0u64; bit_width];
+        //
+        // The ladder is per-word SCRATCH, not per-call state: `bit_width` is
+        // derived from `n` and so is fixed for the whole call, and every word
+        // starts counting from zero. Allocating it inside this loop cost one
+        // heap allocation per 64-bit word — 156 per bundle call at D=10000,
+        // ~7x the 1250-byte output in bytes churned — for a buffer whose
+        // contents never survive an iteration. `n` is a u32, so
+        // `bit_width <= 32`: a fixed stack array covers every possible width
+        // and removes the allocation entirely. Re-zeroed per word below.
+        planes[..bit_width].fill(0);
         for hv in bound_hvs {
             // Big-endian load keeps bit-position j MSB-first within the word.
             let word = u64::from_be_bytes(hv[off..off + 8].try_into().unwrap());
             // Ripple-add the 0/1 mask `word` into the counter network.
             let mut carry = word;
-            for plane in planes.iter_mut() {
+            for plane in planes[..bit_width].iter_mut() {
                 let new = *plane ^ carry;
                 carry &= *plane;
                 *plane = new;
@@ -108,7 +122,7 @@ pub fn bundle_impl(bound_hvs: &[Vec<u8>], d: usize) -> Result<Vec<u8>, HvError> 
                 }
             }
         }
-        let result = majority_from_planes(&planes, n);
+        let result = majority_from_planes(&planes[..bit_width], n);
         out[off..off + 8].copy_from_slice(&result.to_be_bytes());
     }
 
@@ -164,21 +178,45 @@ fn majority_from_planes(planes: &[u64], n: u32) -> u64 {
 
 /// Circular bit-roll. Positive `shift` moves bits toward higher index, exactly
 /// like `np.roll` over the unpacked bit array. The bit length is `8 * hv.len()`.
+///
+/// Done in the packed domain. The bit length is always a multiple of 8, so a
+/// rotation decomposes as `s = 8 * a + r` — a whole-byte rotation plus a
+/// residual in-byte shift — and each output byte draws from exactly two input
+/// bytes: the one `a` back, and the one before it to pick up the bits crossing
+/// the byte boundary. The unpack-to-one-byte-per-bit step is therefore not
+/// required. The previous unpack/roll/repack form allocated and touched one
+/// byte per BIT (`8 * len` bytes — 17x the payload at D=10000) where this
+/// touches one byte per byte.
 pub fn permute_impl(hv: &[u8], shift: i64) -> Vec<u8> {
-    let bits = unpack_bits_msb(hv);
-    let n = bits.len();
-    if n == 0 {
+    let len = hv.len();
+    if len == 0 {
         return Vec::new();
     }
-    let n_i = n as i64;
-    // np.roll: out[i] = bits[(i - shift) mod n]
+    // n = 8 * len is always a multiple of 8 — that is precisely what lets the
+    // rotation split cleanly into a byte rotation and a residual bit shift.
+    let n_i = (len * 8) as i64;
+    // np.roll: out_bit[i] = in_bit[(i - shift) mod n]
     let s = ((shift % n_i) + n_i) % n_i;
-    let mut rolled = vec![0u8; n];
-    for i in 0..n {
-        let src = ((i as i64 - s) % n_i + n_i) % n_i;
-        rolled[i] = bits[src as usize];
+    if s == 0 {
+        return hv.to_vec();
     }
-    pack_bits_msb(&rolled)
+    let a = (s / 8) as usize;
+    let r = (s % 8) as u32;
+    // Bit j is MSB-first, so mask = 1 << (7 - j): a bit moving UP by r indices
+    // moves DOWN by r in mask position — a right shift — and the bits entering
+    // from the previous byte shift left to land in the low r mask positions.
+    let mut out = vec![0u8; len];
+    for (b, slot) in out.iter_mut().enumerate() {
+        let hi = (b + len - a) % len;
+        let lo = (hi + len - 1) % len;
+        *slot = if r == 0 {
+            hv[hi]
+        } else {
+            // 8 - r is in 1..=7 for r in 1..=7, so this shift is always defined.
+            (hv[hi] >> r) | (hv[lo] << (8 - r))
+        };
+    }
+    out
 }
 
 /// Hamming distance in bits via popcount of the XOR. `u64::count_ones` lowers

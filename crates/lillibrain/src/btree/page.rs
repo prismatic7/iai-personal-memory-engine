@@ -314,6 +314,34 @@ pub fn read_leaf_keys(page: &[u8], threshold: usize) -> Result<Vec<i64>> {
     Ok(keys)
 }
 
+/// Leftmost cell index whose key is `>= key`, read IN PLACE from the page.
+///
+/// Equivalent to `bisect_left(&read_leaf_keys(page, threshold)?, key)`, but
+/// without materialising the key array. Cells are key-sorted and addressed by an
+/// O(1) pointer array, so each probe decodes a single cell's framing directly at
+/// its own offset — the sorted array the search needs is an *index into the
+/// page*, not a heap copy of it.
+///
+/// This matters on the descent path: a lookup into a wide leaf otherwise
+/// allocates a `Vec<i64>` sized to the page's cell count purely to binary-search
+/// it, then discards it — because the caller re-reads the same page immediately
+/// afterwards to materialise the payload. Validation is unchanged for every cell
+/// the search actually touches: `read_leaf_cell_raw` bounds-checks the pointer it
+/// follows. (`check.rs` remains the path that validates every cell on a page.)
+pub fn leaf_bisect_left(page: &[u8], key: i64, threshold: usize) -> Result<usize> {
+    let mut left = 0usize;
+    let mut right = read_leaf_header(page).num_cells;
+    while left < right {
+        let mid = left + (right - left) / 2;
+        if read_leaf_cell_raw(page, mid, threshold)?.key < key {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+    Ok(left)
+}
+
 /// On-page byte cost of a leaf cell given its key and declared payload length.
 pub fn on_page_cell_size(key: i64, declared_len: usize, threshold: usize) -> usize {
     let payload_bytes = if declared_len > threshold {
@@ -346,19 +374,7 @@ pub fn read_interior_node(page: &[u8]) -> Result<InteriorNode> {
     let mut keys = Vec::with_capacity(hdr.num_cells);
     let mut children = Vec::with_capacity(hdr.num_cells + 1);
     for i in 0..hdr.num_cells {
-        let at = INTERIOR_PTR_ARRAY_START
-            .checked_add(i.checked_mul(2).ok_or_else(|| StoreError::Integrity {
-                detail: format!("interior cell index {i} pointer offset overflow"),
-            })?)
-            .ok_or_else(|| StoreError::Integrity {
-                detail: format!("interior cell index {i} pointer offset overflow"),
-            })?;
-        let ptr = checked_u16(page, at)? as usize;
-        if ptr < INTERIOR_PTR_ARRAY_START || ptr + INTERIOR_CHILD_SIZE > USABLE_END {
-            return Err(StoreError::Integrity {
-                detail: format!("interior cell {i} pointer {ptr} outside usable area"),
-            });
-        }
+        let ptr = interior_cell_ptr(page, i)?;
         let left_child = checked_u32(page, ptr)?;
         let (key, _n) = decode_varint(page, ptr + INTERIOR_CHILD_SIZE)?;
         children.push(left_child);
@@ -366,6 +382,83 @@ pub fn read_interior_node(page: &[u8]) -> Result<InteriorNode> {
     }
     children.push(hdr.rightmost_child);
     Ok(InteriorNode { keys, children })
+}
+
+/// The child index to descend for `key`, selected IN PLACE from the page.
+///
+/// Equivalent to `bisect_right(&read_interior_node(page)?.keys, key)`, but
+/// without materialising either `Vec`. Interior cells are addressed by an O(1)
+/// pointer array, so each probe decodes one separator key at its own offset: the
+/// search needs an index into the page, not a heap copy of the node.
+///
+/// Allocation matters here because `move_to` performs one of these per level of
+/// every descent, and the descent is the hottest path in the tree. The
+/// per-probe bounds checks are the same ones `read_interior_node` applies, so a
+/// malformed separator is still a typed error rather than a panic.
+pub fn interior_child_index(page: &[u8], key: i64) -> Result<usize> {
+    let num_cells = read_interior_header(page).num_cells;
+    let mut left = 0usize;
+    let mut right = num_cells;
+    while left < right {
+        let mid = left + (right - left) / 2;
+        if separator_key_at(page, mid)? <= key {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+    Ok(left)
+}
+
+/// The child page pointer at `idx` of an interior page, read in place.
+///
+/// `idx < num_cells` reads the child pointer stored with that cell; `idx ==
+/// num_cells` is the header's rightmost child. This mirrors `InteriorNode`'s
+/// `children.len() == keys.len() + 1` invariant, so the descent can follow a
+/// child without materialising the node's two `Vec`s. An out-of-range index is a
+/// typed error where the slice index it replaces would have panicked.
+pub fn interior_child_ptr(page: &[u8], idx: usize) -> Result<u32> {
+    let hdr = read_interior_header(page);
+    if idx > hdr.num_cells {
+        return Err(StoreError::Integrity {
+            detail: format!(
+                "interior child index {idx} past the rightmost child at {}",
+                hdr.num_cells
+            ),
+        });
+    }
+    if idx == hdr.num_cells {
+        return Ok(hdr.rightmost_child);
+    }
+    checked_u32(page, interior_cell_ptr(page, idx)?)
+}
+
+/// Decode the separator key of the interior cell at `idx` in place, applying the
+/// same pointer bounds checks as `read_interior_node`.
+fn separator_key_at(page: &[u8], idx: usize) -> Result<i64> {
+    let ptr = interior_cell_ptr(page, idx)?;
+    let (key, _n) = decode_varint(page, ptr + INTERIOR_CHILD_SIZE)?;
+    Ok(key)
+}
+
+/// Read the cell-pointer offset for the interior cell at `idx`, validating that
+/// it lands inside the usable cell-content area. Shared by the decoding and the
+/// in-place searches so their bounds checks cannot drift apart.
+fn interior_cell_ptr(page: &[u8], idx: usize) -> Result<usize> {
+    let at = INTERIOR_PTR_ARRAY_START
+        .checked_add(idx.checked_mul(2).ok_or_else(|| StoreError::Integrity {
+            detail: format!("interior cell index {idx} pointer offset overflow"),
+        })?)
+        .ok_or_else(|| StoreError::Integrity {
+            detail: format!("interior cell index {idx} pointer offset overflow"),
+        })?;
+    let ptr = checked_u16(page, at)? as usize;
+    if ptr < INTERIOR_PTR_ARRAY_START || ptr + INTERIOR_CHILD_SIZE > USABLE_END {
+        return Err(StoreError::Integrity {
+            detail: format!("interior cell {idx} pointer {ptr} outside usable area"),
+        });
+    }
+    Ok(ptr)
 }
 
 /// Build an interior page from keys and children. Cells pack downward from

@@ -1,13 +1,14 @@
 //! Integration checks for the B-tree page format, overflow chains, cursor,
 //! split, delete, and the Store/Tree public API.
 
+use lillibrain::btree::cursor::{bisect_left, bisect_right};
 use lillibrain::btree::overflow::{
     free_overflow_chain, read_overflow_chain, write_overflow_chain, OVERFLOW_USABLE,
 };
 use lillibrain::btree::page::{
-    empty_leaf, encode_inline_cell, get_sibling, read_interior_node, read_leaf_cell_raw,
-    read_leaf_header, read_leaf_keys, set_sibling, write_interior_node, write_leaf_from_raw,
-    LEAF_PTR_ARRAY_START, USABLE_END,
+    empty_leaf, encode_inline_cell, get_sibling, interior_child_index, interior_child_ptr,
+    leaf_bisect_left, read_interior_node, read_leaf_cell_raw, read_leaf_header, read_leaf_keys,
+    set_sibling, write_interior_node, write_leaf_from_raw, LEAF_PTR_ARRAY_START, USABLE_END,
 };
 use lillibrain::consts::{OVERFLOW_THRESHOLD, PAGE_SIZE};
 use lillibrain::error::StoreError;
@@ -702,4 +703,122 @@ fn get_many_sparse_over_fat_rows_falls_back_and_stays_correct() {
         OVERFLOW_THRESHOLD + 500,
         "the overflow payload must round-trip through get_many"
     );
+}
+
+// ---------------------------------------------------------------------------
+// In-place search equivalence (item 6)
+//
+// The descent path used to materialise a page's whole key array and binary
+// search that (`bisect_left(&read_leaf_keys(page)?, k)`); it now binary searches
+// the page in place (`leaf_bisect_left`). Likewise the interior descent used
+// `bisect_right(&read_interior_node(page)?.keys, k)` and now uses
+// `interior_child_index`. These tests assert the two agree EXACTLY, using the
+// original expressions as the oracle.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn leaf_in_place_bisect_matches_the_materialised_key_array() {
+    // A full leaf: cell counts from empty, one, many, to comfortably wide, plus
+    // duplicate keys (a real possibility on a leaf holding repeated keys).
+    for n in [0usize, 1, 2, 3, 17, 64, 200] {
+        let cells: Vec<Vec<u8>> = (0..n)
+            .map(|i| encode_inline_cell(i as i64 / 3, &vec![b'a' + (i % 26) as u8; 8]))
+            .collect();
+        let page = write_leaf_from_raw(&cells, 0).unwrap();
+        let hdr = read_leaf_header(&page);
+        assert_eq!(hdr.num_cells, n, "page must hold all {n} cells");
+
+        let keys = read_leaf_keys(&page, OVERFLOW_THRESHOLD).unwrap();
+        // Sweep well past both ends, and hit every real key and its neighbours.
+        let probes: Vec<i64> = (-3..(n as i64 / 3 + 4)).collect();
+        for k in probes {
+            let expected = bisect_left(&keys, k);
+            let got = leaf_bisect_left(&page, k, OVERFLOW_THRESHOLD).unwrap();
+            assert_eq!(
+                got, expected,
+                "leaf n={n} key={k}: in-place {got} != materialised {expected}"
+            );
+        }
+    }
+}
+
+#[test]
+fn interior_in_place_child_selection_matches_the_materialised_node() {
+    for n in [1usize, 2, 3, 8, 40, 128] {
+        let keys: Vec<i64> = (0..n).map(|i| (i as i64 + 1) * 10).collect();
+        let children: Vec<u32> = (0..(n + 1)).map(|i| (i as u32) + 2).collect();
+        let page = write_interior_node(&keys, &children).unwrap();
+        let node = read_interior_node(&page).unwrap();
+
+        // Sweep past both ends and onto every separator and its neighbours.
+        let probes: Vec<i64> = (-5..((n as i64 + 1) * 10 + 5)).collect();
+        for k in probes {
+            let expected = bisect_right(&node.keys, k);
+            let got = interior_child_index(&page, k).unwrap();
+            assert_eq!(
+                got, expected,
+                "interior n={n} key={k}: in-place {got} != materialised {expected}"
+            );
+            // The selected child must be the one the materialised node holds —
+            // including the rightmost child, which lives in the header rather
+            // than in the cell array.
+            assert_eq!(
+                interior_child_ptr(&page, got).unwrap(),
+                node.children[expected],
+                "interior n={n} key={k}: child pointer disagrees"
+            );
+        }
+    }
+}
+
+#[test]
+fn interior_child_ptr_rejects_an_index_past_the_rightmost_child() {
+    let keys = vec![10i64, 20];
+    let children = vec![2u32, 3, 4];
+    let page = write_interior_node(&keys, &children).unwrap();
+
+    // Index 2 is the rightmost child (num_cells == 2); index 3 is out of range.
+    assert_eq!(interior_child_ptr(&page, 2).unwrap(), 4);
+    let err = interior_child_ptr(&page, 3)
+        .expect_err("an index past the rightmost child must be a typed error");
+    assert!(
+        matches!(err, StoreError::Integrity { .. }),
+        "expected Integrity, got {err:?}"
+    );
+}
+
+#[test]
+fn point_get_agrees_with_a_full_scan_across_many_shapes() {
+    // End-to-end: after the descent rewrite, a point lookup must return exactly
+    // what an ordered scan of the same tree returns — for present, absent,
+    // boundary, and overflow-spilled keys.
+    let (_d, store, root) = open_tree();
+    let t = store.tree(root);
+
+    let mut expected: Vec<(i64, Vec<u8>)> = Vec::new();
+    for k in 0..500i64 {
+        let payload = if k % 37 == 0 {
+            vec![b'o'; OVERFLOW_THRESHOLD + 300] // spilled
+        } else {
+            vec![(k % 251) as u8; 40 + (k % 60) as usize]
+        };
+        t.insert(k, &payload).unwrap();
+        expected.push((k, payload));
+    }
+
+    // Every present key, in and out of order.
+    for (k, v) in &expected {
+        assert_eq!(t.get(*k).unwrap().as_ref(), Some(v), "get({k}) mismatch");
+    }
+    for k in [-1i64, 500, 10_000] {
+        assert_eq!(t.get(k).unwrap(), None, "absent key {k} must be None");
+    }
+
+    // A range scan over the whole tree must reproduce the tree exactly, which
+    // cross-checks the descent against the sibling-chain walk.
+    let scanned = t.range_scan(0, 499).unwrap();
+    assert_eq!(scanned.len(), expected.len(), "scan length");
+    for (got, want) in scanned.iter().zip(expected.iter()) {
+        assert_eq!(got, want, "scan entry mismatch");
+    }
 }
