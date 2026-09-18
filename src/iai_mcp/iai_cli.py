@@ -1743,27 +1743,6 @@ def cmd_reflect(args: argparse.Namespace) -> int:
     return exit_code
 
 
-def cmd_brain(args: argparse.Namespace) -> int:
-    """Serve the local brain-view dashboard (loopback only, daemon-free)."""
-    from iai_mcp.brainview import BRAINVIEW_DEFAULT_PORT, serve
-
-    port = getattr(args, "port", None) or BRAINVIEW_DEFAULT_PORT
-    if not (0 <= int(port) <= 65535):
-        print(f"brain view failed: port {port} out of range (0-65535)", file=sys.stderr)
-        return 1
-    try:
-        serve(
-            _resolve_store_root(),
-            port=int(port),
-            open_browser=not getattr(args, "no_open", False),
-            app_window=bool(getattr(args, "app", False)),
-        )
-    except (OSError, OverflowError) as exc:
-        print(f"brain view failed: {exc}", file=sys.stderr)
-        return 1
-    return 0
-
-
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="iai",
@@ -1944,31 +1923,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_watch.add_argument("--session-id", default=None)
     p_watch.set_defaults(func=cmd_watch)
 
-    p_brain = sub.add_parser(
-        "brain",
-        help="Open the live brain-view dashboard (local, daemon-free)",
-        description=(
-            "Serves a loopback-only page visualizing the memory graph live: "
-            "records as glowing nodes (tier-colored, community-ringed, "
-            "pinned-marked), Hebbian and contradicts synapses, lifecycle "
-            "state, and the event feed. You can capture a new memory "
-            "(through the shared dedup-gated spine) or hint a record into "
-            "the forgetting queue — there is deliberately NO delete."
-        ),
-    )
-    p_brain.add_argument(
-        "--port", type=int, default=None,
-        help="Port to bind on 127.0.0.1 (default 4477)",
-    )
-    p_brain.add_argument(
-        "--no-open", action="store_true", default=False,
-        help="Do not auto-open the browser",
-    )
-    p_brain.add_argument(
-        "--app", action="store_true", default=False,
-        help="Open as a chromeless desktop window (Chrome app mode)",
-    )
-    p_brain.set_defaults(func=cmd_brain)
 
     p_capture = sub.add_parser(
         "capture",

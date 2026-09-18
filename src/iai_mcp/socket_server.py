@@ -150,16 +150,16 @@ class SocketServer:
                 # observation, not work — a watching brain view polling every
                 # few seconds must not defer consolidation forever either.
                 _p = req.get("params") if isinstance(req, dict) else None
-                # The observation set is imported from brainview as the single
+                # The observation set lives in iai_mcp._rpc_verbs as the single
                 # source of truth — a hand-copied tuple here would drift and let
-                # a dashboard polling a read verb reset the activity clock,
+                # a client polling a read verb reset the activity clock,
                 # starving consolidation.
-                from iai_mcp.brainview import BRAIN_VIEW_OBSERVATION_VERBS
+                from iai_mcp._rpc_verbs import OBSERVATION_VERBS
                 _is_observation = (
                     isinstance(req, dict)
                     and req.get("method") == "brain_view"
                     and isinstance(_p, dict)
-                    and str(_p.get("verb")) in BRAIN_VIEW_OBSERVATION_VERBS
+                    and str(_p.get("verb")) in OBSERVATION_VERBS
                 )
                 if not _is_observation:
                     self.last_activity_ts = time.monotonic()

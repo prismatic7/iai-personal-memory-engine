@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of silently falling back to their defaults. Env vars and CLI flags are
   unaffected.
 
+### Removed
+- The brain-view HTTP dashboard (`iai brain`, the loopback server, and its
+  bundled `index.html`). The `BrainView` verb layer is retained because the CLI
+  `teach` path and the daemon's observation-verb gate use it.
+
 ## [3.2.3] - 2026-09-13
 
 ### Changed

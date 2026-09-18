@@ -177,16 +177,10 @@ def test_cli_search_is_daemon_free(tmp_path, monkeypatch, capsys):
     assert resp["hits"] and "IAI_MCP_FORESIGHT_OFF" in resp["hits"][0]["surface"]
 
 
-def test_desktop_crate_spawns_dashboard_daemon_free(tmp_path):
-    """The native desktop app's contract with the CLI: it spawns
-    `iai brain --no-open --port N` and resolves the CLI through the
-    install-time cache. Both halves must exist on the Python side."""
+def test_desktop_crate_resolves_the_cli_through_the_install_cache(tmp_path):
+    """The native desktop app resolves the CLI through the install-time cache.
+    Its other half used to spawn `iai brain`, but the brain-view dashboard has
+    been removed, so only the cache contract is asserted here."""
     crate = Path(__file__).resolve().parents[1] / "desktop/src-tauri/src/main.rs"
     src = crate.read_text(encoding="utf-8")
-    assert '"brain"' in src and '"--no-open"' in src and '"--port"' in src
     assert ".iai-mcp/.cli-path" in src
-    # the flag the app relies on must stay real
-    from iai_mcp.iai_cli import _build_parser
-
-    args = _build_parser().parse_args(["brain", "--no-open", "--port", "4477"])
-    assert args.no_open is True and args.port == 4477

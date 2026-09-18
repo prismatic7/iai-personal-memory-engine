@@ -12,15 +12,13 @@ import logging
 import threading
 import time
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from importlib import resources
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-logger = logging.getLogger(__name__)
+from iai_mcp._rpc_verbs import READ_ONLY_VERBS
 
-BRAINVIEW_DEFAULT_PORT: int = 4477
+logger = logging.getLogger(__name__)
 
 #: Per-call token overhead for one avoided memory search (request framing +
 #: tool schema + answer scaffolding), used as the savings floor.
@@ -31,7 +29,6 @@ GRAPH_EDGE_LIMIT: int = 3000
 #: added so the picture shows connections, not isolated dots.
 _GRAPH_PARTNER_CAP: int = 300
 SURFACE_TRUNC: int = 280
-_MAX_POST_BYTES: int = 40_000_000
 _BROWSE_ROOT_SCAN_CAP: int = 20_000
 _READ_CACHE_MAX: int = 128
 
@@ -44,12 +41,9 @@ def _safe_int(value: Any, default: int) -> int:
 
 #: Verbs served off the lock-free RO snapshot when the writable store is
 #: unavailable (relay busy + write-open fenced). Read-only by construction.
-BRAIN_VIEW_RO_VERBS = frozenset({"overview", "graph", "economy", "events", "browse"})
-
-#: OBSERVATION, not user work: these must NEVER reset the daemon's activity
-#: clock, or a dashboard polling them keeps the sleep pipeline from ever
-#: seeing an idle window (browsing one's own memory is watching, not working).
-BRAIN_VIEW_OBSERVATION_VERBS = BRAIN_VIEW_RO_VERBS | {"search", "surface"}
+#: Defined in ``_rpc_verbs`` because the daemon socket gate needs the same
+#: classification; re-exported here for the view's own dispatch.
+BRAIN_VIEW_RO_VERBS = READ_ONLY_VERBS
 
 
 def _graph_node_selectors(
@@ -92,14 +86,6 @@ def _savings_lower_est(
         avg_pack = (served_bytes // 4) // served if served else 0
         savings += served * max(0, avg_search_tokens - avg_pack)
     return savings
-
-
-def _load_page() -> bytes:
-    ref = resources.files("iai_mcp") / "_deploy" / "brainview" / "index.html"
-    return ref.read_bytes()
-
-
-_COVERAGE_TTL_SEC = 60.0
 
 
 def _knowledge_coverage(conn) -> "float | None":
@@ -319,7 +305,7 @@ class BrainView:
         the last good payload marked stale. Consolidation becomes something
         you can WATCH instead of something that blanks the screen."""
         key = f"{verb}:{sorted(kwargs.items())!r}"
-        # Every _read_cache access is under _backend_lock: ThreadingHTTPServer
+        # Every _read_cache access is under _backend_lock: the
         # runs one thread per request on this shared view, and an unguarded
         # eviction loop racing an insert raises "dictionary changed size".
         with self._backend_lock:
@@ -1697,181 +1683,6 @@ class BrainView:
         return {"status": "queued_for_forgetting", "record_id": str(rid)}
 
 
-class _Handler(BaseHTTPRequestHandler):
-    view: BrainView
-    page: bytes
-
-    def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A003
-        logger.debug("brainview http: " + fmt, *args)
-
-    #: Loopback-only is not browser-only: any web page the user visits can
-    #: fire cross-origin requests at 127.0.0.1 (CSRF) and DNS-rebinding can
-    #: point a hostile hostname here. A local viewer must therefore verify
-    #: BOTH the Host it was addressed by and, for state-changing requests,
-    #: that no foreign web Origin sent them.
-    _ALLOWED_HOSTS = ("127.0.0.1", "localhost", "[::1]")
-
-    def _request_allowed(self, mutating: bool) -> bool:
-        raw_host = (self.headers.get("Host") or "").strip().lower()
-        if raw_host.startswith("["):
-            # Bracketed IPv6 (e.g. "[::1]:4477"): the port follows the
-            # bracket — a bare split(":") truncates the host to "[" and the
-            # v6-loopback allow-list entry never matches.
-            host = raw_host[: raw_host.index("]") + 1] if "]" in raw_host else raw_host
-        else:
-            host = raw_host.split(":", 1)[0]
-        if host not in self._ALLOWED_HOSTS:
-            return False
-        origin = self.headers.get("Origin")
-        if origin:
-            try:
-                from urllib.parse import urlsplit
-
-                ohost = (urlsplit(origin).hostname or "").lower()
-            except ValueError:
-                return False
-            if ohost not in self._ALLOWED_HOSTS:
-                return False
-        elif mutating:
-            # Non-browser local clients (curl, the app shell) send no Origin;
-            # browsers always do on cross-origin POSTs. Belt-and-braces for
-            # the "always" assumption: a request that self-identifies its
-            # fetch site as foreign is rejected even without an Origin.
-            sec_site = (self.headers.get("Sec-Fetch-Site") or "").lower()
-            if sec_site == "cross-site":
-                return False
-        return True
-
-    def _method_not_allowed(self) -> None:
-        self._json({"status": "error", "reason": "method not allowed"}, 405)
-
-    do_PUT = do_DELETE = do_PATCH = do_OPTIONS = do_HEAD = _method_not_allowed
-
-    def _send(self, code: int, body: bytes, ctype: str) -> None:
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        if ctype.startswith("text/html"):
-            # The page renders decrypted memory + ingested documents; the page
-            # is fully self-contained (inline script/style, no external
-            # loads), so everything beyond same-origin + inline is denied —
-            # an escaped-sink slip cannot exfiltrate or load foreign code.
-            self.send_header(
-                "Content-Security-Policy",
-                "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-                "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-                "connect-src 'self'; form-action 'self'; "
-                "frame-ancestors 'none'; base-uri 'none'",
-            )
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _json(self, payload: Any, code: int = 200) -> None:
-        self._send(
-            code,
-            json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            "application/json; charset=utf-8",
-        )
-
-    def do_GET(self) -> None:  # noqa: N802
-        try:
-            if not self._request_allowed(mutating=False):
-                self._json({"status": "error", "reason": "forbidden origin"}, 403)
-                return
-            path = self.path.split("?", 1)[0]
-            if path in ("/", "/index.html"):
-                self._send(200, self.page, "text/html; charset=utf-8")
-            elif path == "/api/overview":
-                self._json(self.view.overview())
-            elif path == "/api/graph":
-                self._json(self.view.graph(limit=self._qint("limit", GRAPH_NODE_LIMIT)))
-            elif path == "/api/events":
-                self._json(self.view.events(limit=self._qint("limit", 30)))
-            elif path == "/api/economy":
-                self._json(self.view.economy())
-            elif path == "/api/browse":
-                self._json(self.view.browse())
-            else:
-                self._json({"status": "error", "reason": "not found"}, 404)
-        except Exception as exc:  # noqa: BLE001 -- a handler fault must not kill the server
-            logger.warning("brainview GET failed: %s", exc)
-            self._json({"status": "error", "reason": str(exc)[:200]}, 500)
-
-    def do_POST(self) -> None:  # noqa: N802
-        try:
-            if not self._request_allowed(mutating=True):
-                self._json({"status": "error", "reason": "forbidden origin"}, 403)
-                return
-            try:
-                length = int(self.headers.get("Content-Length") or 0)
-            except (TypeError, ValueError):
-                length = -1
-            if length < 0 or length > _MAX_POST_BYTES:
-                self._json({"status": "error", "reason": "invalid content length"}, 400)
-                return
-            raw = self.rfile.read(length) if length else b"{}"
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-            except (ValueError, UnicodeDecodeError):
-                payload = {}
-            if self.path == "/api/capture":
-                text = str(payload.get("text") or "")
-                self._json(self.view.capture(text))
-            elif self.path == "/api/teach":
-                self._json(
-                    self.view.teach(
-                        str(payload.get("filename") or ""),
-                        str(payload.get("content_b64") or ""),
-                    )
-                )
-            elif self.path == "/api/forget":
-                self._json(self.view.forget_hint(str(payload.get("id") or "")))
-            elif self.path == "/api/rescue":
-                self._json(self.view.rescue(str(payload.get("id") or "")))
-            elif self.path == "/api/pin":
-                self._json(self.view.pin(str(payload.get("id") or ""),
-                                         bool(payload.get("on", True))))
-            elif self.path == "/api/surface":
-                self._json(self.view.surface(str(payload.get("id") or "")))
-            elif self.path == "/api/search":
-                self._json(self.view.search(str(payload.get("q") or "")))
-            elif self.path == "/api/browse":
-                self._json(
-                    self.view.browse(payload.get("folder"), _safe_int(payload.get("limit"), 60))
-                )
-            elif self.path == "/api/daemon":
-                self._json(self.view.daemon_action(str(payload.get("action") or "")))
-            else:
-                self._json({"status": "error", "reason": "not found"}, 404)
-        except Exception as exc:  # noqa: BLE001 -- a handler fault must not kill the server
-            logger.warning("brainview POST failed: %s", exc)
-            self._json({"status": "error", "reason": str(exc)[:200]}, 500)
-
-    def _qint(self, key: str, default: int) -> int:
-        if "?" not in self.path:
-            return default
-        from urllib.parse import parse_qs
-
-        qs = parse_qs(self.path.split("?", 1)[1])
-        try:
-            return int(qs.get(key, [default])[0])
-        except (TypeError, ValueError):
-            return default
-
-
-def make_server(
-    store: Any = None, port: int = 0, *, view: "BrainView | None" = None
-) -> ThreadingHTTPServer:
-    """Bind the loopback server; port=0 picks an ephemeral port."""
-    if view is None:
-        view = BrainView(store)
-    page = _load_page()
-    handler = type("BoundHandler", (_Handler,), {"view": view, "page": page})
-    return ThreadingHTTPServer(("127.0.0.1", port), handler)
-
-
 #: Server-side views for the daemon's relay verb — one per live store.
 import weakref as _weakref
 
@@ -1892,58 +1703,3 @@ def view_for_store(store: Any) -> BrainView:
     return view
 
 
-def open_app_window(url: str) -> None:
-    """Open the page as a chromeless desktop window (Chrome app mode when
-    available, default browser otherwise)."""
-    import subprocess
-
-    chrome = Path("/Applications/Google Chrome.app")
-    try:
-        if chrome.exists():
-            subprocess.Popen(
-                ["open", "-na", "Google Chrome", "--args", f"--app={url}"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            return
-    except OSError:
-        pass
-    import webbrowser
-
-    webbrowser.open(url)
-
-
-def serve(
-    store_root: "str | Path",
-    port: int = BRAINVIEW_DEFAULT_PORT,
-    open_browser: bool = False,
-    app_window: bool = False,
-) -> None:
-    # No store is opened up front: the backend is decided per request, so the
-    # port binds instantly even mid-consolidation.
-    view = BrainView(store_root=store_root)
-    server = make_server(port=port, view=view)
-    url = f"http://127.0.0.1:{server.server_address[1]}/"
-    print(f"brain view: {url}  (Ctrl+C to stop)")
-    if app_window:
-        open_app_window(url)
-    elif open_browser:
-        import webbrowser
-
-        webbrowser.open(url)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.shutdown()
-        try:
-            if view.store is not None:
-                view.store.close()
-        except Exception:  # noqa: BLE001 -- shutdown must not fail the user
-            pass
-        try:
-            ro = getattr(view, "_ro_cached", None)
-            if ro is not None:
-                ro.close()
-        except Exception:  # noqa: BLE001 -- shutdown must not fail the user
-            pass

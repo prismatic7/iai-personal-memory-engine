@@ -15,13 +15,12 @@ import os
 import socket
 import subprocess
 import threading
-import urllib.request
 from pathlib import Path
 
 import pytest
 
 from iai_mcp import foresight
-from iai_mcp.brainview import make_server
+from iai_mcp.brainview import BrainView
 from iai_mcp.capture import capture_turn
 from iai_mcp.events import query_events, write_event
 from iai_mcp.store import MemoryStore, flush_record_buffer
@@ -115,23 +114,15 @@ def test_economy_endpoint_folds_all_three_sources(driver, tmp_path, monkeypatch)
         encoding="utf-8",
     )
 
-    server = make_server(store, port=0)
-    port = server.server_address[1]
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    try:
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/api/economy", timeout=10
-        ) as resp:
-            eco = json.loads(resp.read())
-        assert eco["packs_built"] == 3
-        assert eco["packs_served"] == 2
-        assert eco["tokens_injected_est"] == 500  # (800+1200)/4
-        assert eco["agent_searches"] == 2
-        assert eco["avg_search_tokens_est"] == 1000  # 4000/4
-        # 2 served * (220 overhead + (1000 observed - 250 avg pack) premium)
-        assert eco["tokens_saved_lower_est"] == 1940
-    finally:
-        server.shutdown()
+    view = BrainView(store)
+    eco = view.economy()
+    assert eco["packs_built"] == 3
+    assert eco["packs_served"] == 2
+    assert eco["tokens_injected_est"] == 500  # (800+1200)/4
+    assert eco["agent_searches"] == 2
+    assert eco["avg_search_tokens_est"] == 1000  # 4000/4
+    # 2 served * (220 overhead + (1000 observed - 250 avg pack) premium)
+    assert eco["tokens_saved_lower_est"] == 1940
 
 
 def test_hook_appends_serve_ledger(tmp_path):
