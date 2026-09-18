@@ -697,10 +697,10 @@ def build_bucket_b_evidence_fixture(
     ids: dict[str, object] = {}
     probe_cue: dict[str, str] = {}
 
-    # T8 profile modulation -- interest_boost/dunn_quadrant apply the SAME
+    # T8 profile modulation -- interest_boost/sensory_weighting apply the SAME
     # gain to every candidate (uniform multiplier), so by construction
     # neither can flip relative rank order between two candidates; only the
-    # community-keyed monotropism_depth component varies per candidate, and
+    # community-keyed focus_depth component varies per candidate, and
     # demonstrating THAT requires distinct multi-community targeting this
     # small fixture does not build. This probe records the (real, measured)
     # score change from interest_boost, documented as score-only evidence.

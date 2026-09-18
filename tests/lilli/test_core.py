@@ -163,7 +163,7 @@ def test_lilli_package_no_forbidden_tokens() -> None:
     Two-stage guard:
     1. Plain literal tokens the generic regex cannot express.
     2. Generic plan/phase/decision-code regex with word boundaries so that
-       runtime registry keys like AUTIST-01 and MCP-12 do NOT trip it.
+       runtime registry keys like TUNE-01 and MCP-12 do NOT trip it.
     """
     import re
 

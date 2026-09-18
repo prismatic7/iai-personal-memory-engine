@@ -17,22 +17,22 @@ class KnobSpec:
 
 
 PROFILE_KNOBS: dict[str, KnobSpec] = {
-    "monotropism_depth": KnobSpec(
-        "monotropism_depth",
+    "focus_depth": KnobSpec(
+        "focus_depth",
         1,
         {},
-        "Monotropism depth per domain (voluntary tunnel; HIPPEA precision)",
+        "Focus depth per domain (voluntary tunnel; HIPPEA precision)",
         "dict:str:float_range:0.0..1.0",
-        "AUTIST-01",
+        "TUNE-01",
     ),
-    "dunn_quadrant": KnobSpec(
-        "dunn_quadrant",
+    "sensory_weighting": KnobSpec(
+        "sensory_weighting",
         1,
         "neutral",
-        "Sensory threshold x regulation posture (Dunn four-quadrant; "
+        "Sensory-weighting posture ("
         "drives HIPPEA precision weighting at runtime)",
-        "enum:neutral|low-registration|seeking|sensitive|avoiding",
-        "AUTIST-03",
+        "enum:neutral|low|raised|heightened|dampened",
+        "TUNE-03",
     ),
     "literal_preservation": KnobSpec(
         "literal_preservation",
@@ -40,39 +40,39 @@ PROFILE_KNOBS: dict[str, KnobSpec] = {
         "strong",
         "Verbatim vs semantic summary (raw always retained)",
         "enum:strong|medium|loose",
-        "AUTIST-04",
+        "TUNE-04",
     ),
-    "demand_avoidance_tolerance": KnobSpec(
-        "demand_avoidance_tolerance",
+    "phrasing_mode": KnobSpec(
+        "phrasing_mode",
         1,
         "collaborative",
-        "PDA-aware collaborative phrasing vs imperative",
+        "Collaborative phrasing vs imperative",
         "enum:collaborative|neutral|imperative",
-        "AUTIST-05",
+        "TUNE-05",
     ),
-    "masking_off": KnobSpec(
-        "masking_off",
+    "terse_pragmatics": KnobSpec(
+        "terse_pragmatics",
         1,
         True,
         "No small-talk, no performative empathy, literal pragmatics",
         "bool",
-        "AUTIST-06",
+        "TUNE-06",
     ),
     "task_support": KnobSpec(
         "task_support",
         1,
         "cued_recognition",
-        "Blank-recall vs cued-recognition with adjacent suggestions (Bowler)",
+        "Blank-recall vs cued-recognition with adjacent suggestions",
         "enum:blank_recall|cued_recognition",
-        "AUTIST-07",
+        "TUNE-07",
     ),
     "interest_boost": KnobSpec(
         "interest_boost",
         1,
         0.0,
-        "Salience amplification adjacent to monotropism domains",
+        "Salience amplification adjacent to focus-depth domains",
         "float_range:0.0..1.0",
-        "AUTIST-09",
+        "TUNE-09",
     ),
     "inertia_awareness": KnobSpec(
         "inertia_awareness",
@@ -80,7 +80,7 @@ PROFILE_KNOBS: dict[str, KnobSpec] = {
         False,
         "Ambient passive capture in high-inertia windows",
         "bool",
-        "AUTIST-10",
+        "TUNE-10",
     ),
     "scene_construction_scaffold": KnobSpec(
         "scene_construction_scaffold",
@@ -88,7 +88,7 @@ PROFILE_KNOBS: dict[str, KnobSpec] = {
         True,
         "Scene-construction scaffold intensity for episodic encoding",
         "bool",
-        "AUTIST-14",
+        "TUNE-14",
     ),
     "wake_depth": KnobSpec(
         "wake_depth",
@@ -113,10 +113,10 @@ DEFERRED_KNOB_NAMES: frozenset[str] = frozenset(
 
 
 assert len(PROFILE_KNOBS) == 10, (
-    "9 autistic-kernel knobs + wake_depth = 10 sealed entries"
+    "9 profile knobs + wake_depth = 10 sealed entries"
 )
 assert len(LIVE_KNOB_NAMES) == 10, (
-    "9 autistic-kernel knobs + wake_depth are live"
+    "9 profile knobs + wake_depth are live"
 )
 assert len(DEFERRED_KNOB_NAMES) == 0, "the sealed registry carries no deferred knobs"
 
@@ -440,7 +440,7 @@ def profile_modulation_for_record(
 ) -> dict[str, float]:
     gains: dict[str, float] = {}
 
-    md = profile_state.get("monotropism_depth", {})
+    md = profile_state.get("focus_depth", {})
     _record_community_id = (
         getattr(record, "community_id", None)
         if community_id_override is _COMMUNITY_ID_NOT_GIVEN
@@ -452,12 +452,12 @@ def profile_modulation_for_record(
         if name is not None and name in md:
             depth = md[name]
             try:
-                gains["monotropism_depth"] = 1.0 + float(depth)
+                gains["focus_depth"] = 1.0 + float(depth)
             except (TypeError, ValueError):
                 pass
             if knobs_applied is not None:
-                knobs_applied["AUTIST-01"] = (
-                    "profile.py:profile_modulation_for_record:monotropism_depth"
+                knobs_applied["TUNE-01"] = (
+                    "profile.py:profile_modulation_for_record:focus_depth"
                 )
 
     ib = profile_state.get("interest_boost", 0.0)
@@ -465,24 +465,24 @@ def profile_modulation_for_record(
         if float(ib) > 0:
             gains["interest_boost"] = 1.0 + float(ib)
             if knobs_applied is not None:
-                knobs_applied["AUTIST-09"] = (
+                knobs_applied["TUNE-09"] = (
                     "profile.py:profile_modulation_for_record:interest_boost"
                 )
     except (TypeError, ValueError):
         pass
 
-    dq = profile_state.get("dunn_quadrant")
-    if dq == "seeking":
-        gains["dunn_quadrant"] = 1.2
+    dq = profile_state.get("sensory_weighting")
+    if dq == "raised":
+        gains["sensory_weighting"] = 1.2
         if knobs_applied is not None:
-            knobs_applied["AUTIST-03"] = (
-                "profile.py:profile_modulation_for_record:dunn_quadrant=seeking"
+            knobs_applied["TUNE-03"] = (
+                "profile.py:profile_modulation_for_record:sensory_weighting=raised"
             )
-    elif dq == "avoiding":
-        gains["dunn_quadrant"] = 0.8
+    elif dq == "dampened":
+        gains["sensory_weighting"] = 0.8
         if knobs_applied is not None:
-            knobs_applied["AUTIST-03"] = (
-                "profile.py:profile_modulation_for_record:dunn_quadrant=avoiding"
+            knobs_applied["TUNE-03"] = (
+                "profile.py:profile_modulation_for_record:sensory_weighting=dampened"
             )
 
     return gains

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Breaking (with migration):** four behavioural knobs were renamed away from a
+  clinical vocabulary: `monotropism_depth` -> `focus_depth`,
+  `dunn_quadrant` -> `sensory_weighting`,
+  `demand_avoidance_tolerance` -> `phrasing_mode`,
+  `masking_off` -> `terse_pragmatics`. The retired enum members
+  (`low-registration`, `seeking`, `sensitive`, `avoiding`) are likewise mapped to
+  `low`, `raised`, `heightened`, `dampened`. Behaviours, defaults, and ranking
+  effects are unchanged; requirement IDs moved from `AUTIST-NN` to `TUNE-NN`.
+  A persisted profile blob written by an older build is migrated on load across
+  `knobs`, `posterior`, and `pins`, so tuned values survive the upgrade instead
+  of silently falling back to their defaults. Env vars and CLI flags are
+  unaffected.
+
 ## [3.2.3] - 2026-09-13
 
 ### Changed

@@ -351,7 +351,7 @@ def test_precision_eval_scripted_conversation(driver, tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("driver", ["stdlib", "lilli"])
 def test_goal_blend_disambiguates_vague_turn(driver, tmp_path, monkeypatch):
-    """Monotropism: a vague turn inherits meaning from the active task."""
+    """Focus-depth: a vague turn inherits meaning from the active task."""
     from iai_mcp import working_tier
 
     _select_driver(driver, monkeypatch)

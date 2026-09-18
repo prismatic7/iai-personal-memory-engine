@@ -52,7 +52,7 @@ RECOVER_THRESHOLD = 0.34
 # propose the down move -- a couple of quiet sessions is not a pattern.
 MIN_DISPLAYED_SESSIONS = 4
 
-# monotropism_depth: cue -> pre-rank community-gate concentration, mapped to
+# focus_depth: cue -> pre-rank community-gate concentration, mapped to
 # a per-topic depth. K below this floor makes a 1/K uniform baseline
 # meaningless (a 2-community gate always looks "concentrated").
 K_MIN = 4
@@ -332,7 +332,7 @@ def _apply_task_support_tuning(current: str, observed: str, posterior: dict) -> 
     return "blank_recall"
 
 
-def _observe_monotropism(
+def _observe_focus_depth(
     events_by_kind: dict[str, list[dict]], *, current: dict,
 ) -> tuple["dict[str, float] | None", int, str]:
     """Per-community share of pre-rank gated cue touches, mapped to a depth
@@ -380,7 +380,7 @@ def _observe_monotropism(
     return observed, total, "implicit"
 
 
-def _apply_monotropism_depth(current: dict, observed: dict, posterior: dict) -> dict:
+def _apply_focus_depth(current: dict, observed: dict, posterior: dict) -> dict:
     """`current`/`observed` are name-keyed by the time this runs (the step's
     remap seam runs before `bayesian_update`). `observed` carries this
     window's touched keys; the smoothed per-key mean lives in
@@ -454,11 +454,11 @@ TUNING_SPECS: dict[str, TuningSpec] = {
         _observe_task_support,
         _apply_task_support_tuning,
     ),
-    "monotropism_depth": TuningSpec(
-        "monotropism_depth",
+    "focus_depth": TuningSpec(
+        "focus_depth",
         ("retrieval_used",),
         MIN_TOTAL_TOUCHES,
-        _observe_monotropism,
-        _apply_monotropism_depth,
+        _observe_focus_depth,
+        _apply_focus_depth,
     ),
 }

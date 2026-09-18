@@ -257,7 +257,7 @@ def step_knob_tune(
         events_by_kind = {k: fetched.get(k, []) for k in spec.kinds}
         observed, n, signal = spec.observe(events_by_kind, current=prev_value)
 
-        if knob == "monotropism_depth" and isinstance(observed, dict):
+        if knob == "focus_depth" and isinstance(observed, dict):
             remapped: dict[str, float] = {}
             for gate_cid, depth in observed.items():
                 name = community_names.get(gate_cid)
@@ -293,10 +293,10 @@ def step_knob_tune(
         seed_incumbent_posterior(knob, prev_value, work_post)
         new_raw, new_post = bayesian_update(knob, signal, observed, work_state, work_post)
         work_post[knob] = new_post.get(knob, work_post.get(knob, {}))
-        # monotropism_depth's apply reads this window's touched-key set
+        # focus_depth's apply reads this window's touched-key set
         # directly (needed to decay/prune untouched keys); every other
         # knob's apply gets bayesian_update's own proposed value, unchanged.
-        apply_input = observed if knob == "monotropism_depth" else new_raw
+        apply_input = observed if knob == "focus_depth" else new_raw
         new_value = spec.apply(prev_value, apply_input, work_post[knob])
         work_state[knob] = new_value
 
@@ -330,7 +330,7 @@ def step_knob_tune(
         )
 
     # A dict-schema knob's from/to carries user-content topic vocabulary
-    # (monotropism_depth today, any future dict-schema knob tomorrow) --
+    # (focus_depth today, any future dict-schema knob tomorrow) --
     # every row, including a populated dict on a no-signal/pinned night,
     # is redacted to a key-count before this event is written.
     redacted_rows = [

@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 S4_VIGILANCE_RHO = 0.97
 
-MONOTROPIC_MAX_PAIRWISE = 100
+FOCUS_DEPTH_MAX_PAIRWISE = 100
 
-S4_MONOTROPIC_THETA = 0.7
+S4_FOCUS_DEPTH_THETA = 0.7
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -250,13 +250,13 @@ def on_read_check_batch(
     return hint_list
 
 
-def monotropic_proactive_check(
+def focus_depth_proactive_check(
     store: MemoryStore,
     new_record: MemoryRecord,
     profile_state: dict,
     session_id: str,
 ) -> list[dict]:
-    md = profile_state.get("monotropism_depth", {})
+    md = profile_state.get("focus_depth", {})
     if not isinstance(md, dict):
         return []
 
@@ -270,7 +270,7 @@ def monotropic_proactive_check(
         return []
 
     depth = md.get(name, 0.0)
-    if depth <= S4_MONOTROPIC_THETA:
+    if depth <= S4_FOCUS_DEPTH_THETA:
         return []
 
     if new_record.detail_level < 4:
@@ -283,10 +283,10 @@ def monotropic_proactive_check(
         and community_names.get(str(r.community_id)) == name
     ]
 
-    if len(same_domain) > MONOTROPIC_MAX_PAIRWISE:
+    if len(same_domain) > FOCUS_DEPTH_MAX_PAIRWISE:
         write_event(
             store,
-            kind="s4_monotropic_skip",
+            kind="s4_focus_depth_skip",
             data={
                 "count": len(same_domain),
                 "record_id": str(new_record.id),
@@ -301,18 +301,18 @@ def monotropic_proactive_check(
         sim = _cosine(new_record.embedding, r.embedding)
         if sim >= S4_VIGILANCE_RHO:
             hint = {
-                "kind": "s4_monotropic_contradiction",
+                "kind": "s4_focus_depth_contradiction",
                 "severity": "info",
                 "source_ids": [str(new_record.id), str(r.id)],
                 "text": (
-                    f"monotropic near-duplicate in {name}: sim={sim:.3f}"
+                    f"focus-depth near-duplicate in {name}: sim={sim:.3f}"
                 ),
                 "similarity": sim,
             }
             hints.append(hint)
             write_event(
                 store,
-                kind="s4_monotropic_contradiction",
+                kind="s4_focus_depth_contradiction",
                 data={
                     "source_ids": [str(new_record.id), str(r.id)],
                     "similarity": sim,

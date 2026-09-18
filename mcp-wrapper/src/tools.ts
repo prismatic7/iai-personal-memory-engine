@@ -383,7 +383,7 @@ export const toolSchemas: Record<ToolName, ToolSchema> = {
   profile_get_set: {
     name: "profile_get_set",
     description:
-      "Read or write a profile knob (10 sealed: 9 AUTIST + wake_depth). operation get|set; returns knob value.",
+      "Read or write a profile knob (10 sealed: 9 tuning + wake_depth). operation get|set; returns knob value.",
     inputSchema: {
       type: "object",
       properties: {

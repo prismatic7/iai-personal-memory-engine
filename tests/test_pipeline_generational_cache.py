@@ -165,7 +165,7 @@ def test_records_view_cache_community_and_gain_never_mutate_shared_object(tmp_pa
     graph, assignment, rich_club = build_runtime_graph(store)
 
     fake_community = uuid4()
-    profile_state = {"monotropism_depth": {"fake-community-name": 0.5}}
+    profile_state = {"focus_depth": {"fake-community-name": 0.5}}
     monkeypatch.setattr(
         "iai_mcp.core.get_community_names",
         lambda: {str(fake_community): "fake-community-name"},

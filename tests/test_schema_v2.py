@@ -125,8 +125,8 @@ def test_memory_record_s5_trust_score_boundary_values_ok():
     assert _make_v2(s5_trust_score=1.0).s5_trust_score == 1.0
 
 def test_memory_record_has_profile_modulation_gain():
-    r = _make_v2(profile_modulation_gain={"monotropism_depth": 1.3, "interest_boost": 1.5})
-    assert r.profile_modulation_gain == {"monotropism_depth": 1.3, "interest_boost": 1.5}
+    r = _make_v2(profile_modulation_gain={"focus_depth": 1.3, "interest_boost": 1.5})
+    assert r.profile_modulation_gain == {"focus_depth": 1.3, "interest_boost": 1.5}
 
 def test_memory_record_profile_modulation_gain_default_empty_dict():
     r = _make_v2()
@@ -231,7 +231,7 @@ def test_record_to_from_row_preserves_profile_modulation_gain(tmp_path):
     from iai_mcp.store import MemoryStore
 
     store = MemoryStore(path=tmp_path)
-    gain = {"monotropism_depth": 1.3, "interest_boost": 1.5}
+    gain = {"focus_depth": 1.3, "interest_boost": 1.5}
     r = _make_v2(profile_modulation_gain=gain)
     store.insert(r)
     got = store.get(r.id)

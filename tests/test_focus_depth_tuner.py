@@ -136,7 +136,7 @@ def _run_pipeline_for_gate(
         turn=1,
         mode="verbatim",
         budget_used=10,
-        path_label="test_monotropism_tuner",
+        path_label="test_focus_depth_tuner",
         cue_community_id=cue_community_id,
         community_k=community_k,
         community_backend=community_backend,
@@ -193,7 +193,7 @@ def test_emit_defaults_null_when_no_gate_args_passed(tmp_path) -> None:
         turn=1,
         mode="verbatim",
         budget_used=10,
-        path_label="test_monotropism_tuner",
+        path_label="test_focus_depth_tuner",
     )
     flush_event_buffer(store)
     data = query_events(store, kind="retrieval_used", limit=10)[0]["data"]
@@ -242,9 +242,9 @@ def test_dominant_community_moves_a_name_keyed_depth(tmp_path, monkeypatch) -> N
     assert done is True
 
     events = query_events(store, kind="profile_tuned", limit=10)
-    row = next(r for r in events[0]["data"]["knobs"] if r["knob"] == "monotropism_depth")
+    row = next(r for r in events[0]["data"]["knobs"] if r["knob"] == "focus_depth")
     assert row["reason"] == "moved"
-    assert core._profile_state["monotropism_depth"] == {"music": pytest.approx(0.15)}
+    assert core._profile_state["focus_depth"] == {"music": pytest.approx(0.15)}
 
 
 def test_first_night_empty_map_is_skipped_no_signal(tmp_path, monkeypatch) -> None:
@@ -267,9 +267,9 @@ def test_first_night_empty_map_is_skipped_no_signal(tmp_path, monkeypatch) -> No
     assert done is True
 
     events = query_events(store, kind="profile_tuned", limit=10)
-    row = next(r for r in events[0]["data"]["knobs"] if r["knob"] == "monotropism_depth")
+    row = next(r for r in events[0]["data"]["knobs"] if r["knob"] == "focus_depth")
     assert row["reason"] == "skipped_no_signal"
-    assert core._profile_state["monotropism_depth"] == {}
+    assert core._profile_state["focus_depth"] == {}
 
 
 def test_gate_id_absent_from_map_contributes_nothing(tmp_path, monkeypatch) -> None:
@@ -292,7 +292,7 @@ def test_gate_id_absent_from_map_contributes_nothing(tmp_path, monkeypatch) -> N
     assert done is True
 
     events = query_events(store, kind="profile_tuned", limit=10)
-    row = next(r for r in events[0]["data"]["knobs"] if r["knob"] == "monotropism_depth")
+    row = next(r for r in events[0]["data"]["knobs"] if r["knob"] == "focus_depth")
     assert row["reason"] == "skipped_no_signal"
 
 
@@ -310,7 +310,7 @@ def test_populated_dict_redacted_on_skipped_no_signal_row(tmp_path, monkeypatch)
     # but the knob already carries a populated, previously-tuned dict.
     core._profile_state.clear()
     core._profile_state.update(default_state())
-    core._profile_state["monotropism_depth"] = {"music": 0.4}
+    core._profile_state["focus_depth"] = {"music": 0.4}
 
     pipe = SleepPipeline(store, lifecycle_state_path=tmp_path / "lifecycle.json")
     done, _payload = pipe._step_knob_tune(None)
@@ -318,7 +318,7 @@ def test_populated_dict_redacted_on_skipped_no_signal_row(tmp_path, monkeypatch)
 
     events = query_events(store, kind="profile_tuned", limit=10)
     data = events[0]["data"]
-    row = next(r for r in data["knobs"] if r["knob"] == "monotropism_depth")
+    row = next(r for r in data["knobs"] if r["knob"] == "focus_depth")
     assert row["reason"] == "skipped_no_signal"
     assert row["from"] == {"keys": 1}
     assert row["to"] == {"keys": 1}
@@ -345,7 +345,7 @@ def test_moved_row_dict_redacted_to_key_count(tmp_path, monkeypatch) -> None:
 
     events = query_events(store, kind="profile_tuned", limit=10)
     data = events[0]["data"]
-    row = next(r for r in data["knobs"] if r["knob"] == "monotropism_depth")
+    row = next(r for r in data["knobs"] if r["knob"] == "focus_depth")
     assert row["reason"] == "moved"
     assert row["from"] == {"keys": 0}
     assert row["to"] == {"keys": 1}
@@ -364,8 +364,8 @@ def test_user_pin_freezes_the_whole_dict_even_above_the_auto_cap(tmp_path, monke
 
     pinned_value = {"jazz": 0.9}
     save_profile_state(
-        store, knobs={"monotropism_depth": pinned_value}, posterior={},
-        pins={"monotropism_depth": now.isoformat()},
+        store, knobs={"focus_depth": pinned_value}, posterior={},
+        pins={"focus_depth": now.isoformat()},
     )
 
     gate_cid = str(uuid4())
@@ -376,17 +376,17 @@ def test_user_pin_freezes_the_whole_dict_even_above_the_auto_cap(tmp_path, monke
 
     core._profile_state.clear()
     core._profile_state.update(default_state())
-    core._profile_state["monotropism_depth"] = dict(pinned_value)
+    core._profile_state["focus_depth"] = dict(pinned_value)
 
     pipe = SleepPipeline(store, lifecycle_state_path=tmp_path / "lifecycle.json")
     done, _payload = pipe._step_knob_tune(None)
     assert done is True
 
-    assert core._profile_state["monotropism_depth"] == pinned_value
+    assert core._profile_state["focus_depth"] == pinned_value
 
     events = query_events(store, kind="profile_tuned", limit=10)
     data = events[0]["data"]
-    row = next(r for r in data["knobs"] if r["knob"] == "monotropism_depth")
+    row = next(r for r in data["knobs"] if r["knob"] == "focus_depth")
     assert row["reason"] == "skipped_pinned_by_user"
     assert row["from"] == {"keys": 1}
     assert row["to"] == {"keys": 1}

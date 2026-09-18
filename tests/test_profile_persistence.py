@@ -1,4 +1,4 @@
-"""Durability of the autistic-cognition profile: an encrypted blob in
+"""Durability of the profile-cognition profile: an encrypted blob in
 ``_hippo_meta`` plus in-place hydration of the live process mappings.
 
 Assertions read the decrypted blob or the live-dict identity directly --
@@ -88,7 +88,7 @@ class _NonHippoStore:
 
 def test_round_trip_preserves_knobs_posterior_pins(tmp_path) -> None:
     store = MemoryStore(path=tmp_path)
-    knobs = {"literal_preservation": "loose", "monotropism_depth": {"alice": 0.7}}
+    knobs = {"literal_preservation": "loose", "focus_depth": {"alice": 0.7}}
     posterior = {"literal_preservation": {"alpha": 2.0, "beta": 1.0}}
     pins = {"literal_preservation": "2026-08-01T10:00:00+00:00"}
 
@@ -104,12 +104,12 @@ def test_round_trip_preserves_knobs_posterior_pins(tmp_path) -> None:
 
 def test_stored_blob_is_encrypted_never_plaintext(tmp_path) -> None:
     store = MemoryStore(path=tmp_path)
-    save_profile_state(store, knobs={"masking_off": True}, posterior={}, pins={})
+    save_profile_state(store, knobs={"terse_pragmatics": True}, posterior={}, pins={})
 
     raw = _read_raw_meta(store)
     assert raw is not None
     assert is_encrypted(raw)
-    assert "masking_off" not in raw
+    assert "terse_pragmatics" not in raw
 
 
 def test_aad_mismatch_fails_open_and_reports_unreadable(tmp_path) -> None:
@@ -151,7 +151,7 @@ def test_out_of_schema_value_dropped_keeps_rest(tmp_path) -> None:
         store,
         knobs={
             "literal_preservation": "not-in-the-enum",
-            "masking_off": True,
+            "terse_pragmatics": True,
         },
         posterior={},
         pins={},
@@ -160,7 +160,7 @@ def test_out_of_schema_value_dropped_keeps_rest(tmp_path) -> None:
     blob = load_profile_state(store)
     assert blob is not None
     assert "literal_preservation" not in blob["knobs"]
-    assert blob["knobs"]["masking_off"] is True
+    assert blob["knobs"]["terse_pragmatics"] is True
     assert "literal_preservation" in blob["dropped"]
 
 
@@ -172,7 +172,7 @@ def test_non_hippo_store_never_raises() -> None:
 
 def test_plaintext_value_treated_as_corrupt(tmp_path) -> None:
     store = MemoryStore(path=tmp_path)
-    _write_raw_meta(store, json.dumps({"version": 1, "knobs": {"masking_off": True}}))
+    _write_raw_meta(store, json.dumps({"version": 1, "knobs": {"terse_pragmatics": True}}))
 
     assert load_profile_state(store) is None
     events = query_events(store, kind="profile_state_unreadable")
@@ -189,7 +189,7 @@ def test_plaintext_value_treated_as_corrupt(tmp_path) -> None:
 def test_hydration_never_rebinds_live_knobs_alias(tmp_path) -> None:
     store = MemoryStore(path=tmp_path)
     save_profile_state(
-        store, knobs={"masking_off": False}, posterior={}, pins={}
+        store, knobs={"terse_pragmatics": False}, posterior={}, pins={}
     )
 
     assert core.LIVE_KNOBS is core._profile_state
@@ -197,15 +197,15 @@ def test_hydration_never_rebinds_live_knobs_alias(tmp_path) -> None:
     assert core.LIVE_KNOBS is core._profile_state, (
         "hydration rebound _profile_state -- LIVE_KNOBS now aliases a stale dict"
     )
-    assert core._profile_state["masking_off"] is False
+    assert core._profile_state["terse_pragmatics"] is False
 
 
 def test_reopen_after_process_reset_recovers_saved_value(tmp_path) -> None:
     store_a = MemoryStore(path=tmp_path)
     save_profile_state(
         store_a,
-        knobs={"dunn_quadrant": "seeking"},
-        posterior={"dunn_quadrant": {"seeking": 1.0}},
+        knobs={"sensory_weighting": "raised"},
+        posterior={"sensory_weighting": {"raised": 1.0}},
         pins={},
     )
     store_a.close()
@@ -214,14 +214,14 @@ def test_reopen_after_process_reset_recovers_saved_value(tmp_path) -> None:
     # rebinding -- the aliasing hazard this plan exists to prevent.
     core._profile_state.clear()
     core._profile_state.update(default_state())
-    assert core._profile_state["dunn_quadrant"] == "neutral"
+    assert core._profile_state["sensory_weighting"] == "neutral"
 
     store_b = MemoryStore(path=tmp_path)
     result = hydrate_profile(store_b, core._profile_state, core._posterior_state)
 
     assert result["hydrated"] is True
-    assert core._profile_state["dunn_quadrant"] == "seeking"
-    assert core._posterior_state["dunn_quadrant"] == {"seeking": 1.0}
+    assert core._profile_state["sensory_weighting"] == "raised"
+    assert core._posterior_state["sensory_weighting"] == {"raised": 1.0}
 
 
 def test_hydration_on_store_with_no_blob_leaves_defaults_and_writes_nothing(
@@ -244,7 +244,7 @@ def test_ensure_profile_hydrated_reads_at_most_once_per_store(
 ) -> None:
     store = MemoryStore(path=tmp_path)
     save_profile_state(
-        store, knobs={"masking_off": False}, posterior={}, pins={}
+        store, knobs={"terse_pragmatics": False}, posterior={}, pins={}
     )
 
     calls = {"n": 0}
@@ -262,12 +262,12 @@ def test_ensure_profile_hydrated_reads_at_most_once_per_store(
     core.dispatch(store, "profile_get", {})
 
     assert calls["n"] == 1, "hydration re-read the store on a second dispatch"
-    assert core._profile_state["masking_off"] is False
+    assert core._profile_state["terse_pragmatics"] is False
 
 
 def test_hydration_never_raises_out_of_dispatch(tmp_path, monkeypatch) -> None:
     store = MemoryStore(path=tmp_path)
-    save_profile_state(store, knobs={"masking_off": False}, posterior={}, pins={})
+    save_profile_state(store, knobs={"terse_pragmatics": False}, posterior={}, pins={})
 
     def _boom(*_args, **_kwargs):
         raise RuntimeError("simulated hydration blowup")
@@ -277,7 +277,7 @@ def test_hydration_never_raises_out_of_dispatch(tmp_path, monkeypatch) -> None:
     )
 
     result = core.dispatch(store, "profile_get", {})
-    assert result["live"]["masking_off"] in (True, False)
+    assert result["live"]["terse_pragmatics"] in (True, False)
 
 
 def test_ensure_profile_hydrated_is_the_daemon_boot_entry_point(tmp_path) -> None:
@@ -288,7 +288,7 @@ def test_ensure_profile_hydrated_is_the_daemon_boot_entry_point(tmp_path) -> Non
     store = MemoryStore(path=tmp_path)
     save_profile_state(
         store,
-        knobs={"dunn_quadrant": "seeking", "interest_boost": 0.4},
+        knobs={"sensory_weighting": "raised", "interest_boost": 0.4},
         posterior={},
         pins={},
     )
@@ -297,7 +297,7 @@ def test_ensure_profile_hydrated_is_the_daemon_boot_entry_point(tmp_path) -> Non
     result = core.ensure_profile_hydrated(store)
 
     assert result["hydrated"] is True
-    assert core._profile_state["dunn_quadrant"] == "seeking"
+    assert core._profile_state["sensory_weighting"] == "raised"
     assert core._profile_state["interest_boost"] == 0.4
     assert core.LIVE_KNOBS is core._profile_state
 
@@ -355,6 +355,6 @@ def test_boot_hydration_loads_persisted_community_names_without_a_sleep_cycle(
         language="en",
     )
     gains = profile_modulation_for_record(
-        record, {"monotropism_depth": {"jazz": 0.4}},
+        record, {"focus_depth": {"jazz": 0.4}},
     )
-    assert gains["monotropism_depth"] == pytest.approx(1.4)
+    assert gains["focus_depth"] == pytest.approx(1.4)

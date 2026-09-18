@@ -17,12 +17,12 @@ def test_apply_profile_is_noop_on_default_state():
     )
     assert isinstance(out["_knobs_applied"], dict), out["_knobs_applied"]
 
-def test_monotropic_focus_narrows_hits():
+def test_focus_depth_narrows_hits():
     from iai_mcp import profile
     from iai_mcp.response_decorator import apply_profile
 
     state = profile.default_state()
-    state["monotropism_depth"] = {"coding": 0.9}
+    state["focus_depth"] = {"coding": 0.9}
     resp = {
         "hits": [
             {"record_id": "r1", "literal_surface": "x", "community_id": "A"},
@@ -50,12 +50,12 @@ def test_pre_existing_keys_untouched_on_exception():
         raise RuntimeError("synthetic helper failure")
 
     original = None
-    helper_name = "_apply_dunn_quadrant"
+    helper_name = "_apply_sensory_weighting"
     if hasattr(response_decorator, helper_name):
         original = getattr(response_decorator, helper_name)
         setattr(response_decorator, helper_name, _boom)
     try:
-        response_decorator.apply_profile(resp, {"dunn_quadrant": "seeking"})
+        response_decorator.apply_profile(resp, {"sensory_weighting": "raised"})
     finally:
         if original is not None:
             setattr(response_decorator, helper_name, original)

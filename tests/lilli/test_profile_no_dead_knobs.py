@@ -6,13 +6,13 @@ from iai_mcp.profile import PROFILE_KNOBS, default_state, profile_set
 
 def test_registry_has_10_knobs() -> None:
     assert len(PROFILE_KNOBS) == 10, (
-        f"Expected 10 knobs (9 AUTIST + wake_depth), "
+        f"Expected 10 knobs (9 TUNE + wake_depth), "
         f"got {len(PROFILE_KNOBS)}: {sorted(PROFILE_KNOBS.keys())}"
     )
-    autist_specs = [
-        s for s in PROFILE_KNOBS.values() if s.requirement_id.startswith("AUTIST-")
+    profile_specs = [
+        s for s in PROFILE_KNOBS.values() if s.requirement_id.startswith("TUNE-")
     ]
-    assert len(autist_specs) == 9
+    assert len(profile_specs) == 9
     assert "wake_depth" in PROFILE_KNOBS
     assert "sensory_channel_weights" not in PROFILE_KNOBS
     assert "event_vs_time_cue" not in PROFILE_KNOBS

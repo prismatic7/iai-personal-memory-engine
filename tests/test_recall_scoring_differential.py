@@ -920,7 +920,7 @@ def test_bucket_b_terms_measurably_change_score_and_rank(tmp_path, monkeypatch):
 
     evidence: dict[str, str] = {}
 
-    # T8 -- interest_boost/dunn_quadrant apply the SAME gain to every
+    # T8 -- interest_boost/sensory_weighting apply the SAME gain to every
     # candidate: a uniform multiplier cannot flip relative rank order by
     # construction (order-preserving). Score-only evidence, documented.
     cue = fixture.probe_cue["T8_profile_modulation"]

@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 class Brain:
 
     def __init__(self, hippo_conn: Any = None) -> None:
-        self.cognitive_mode: str = "autistic"
+        self.cognitive_mode: str = "profile"
 
         self.bsc = bsc
         self.fhrr = fhrr

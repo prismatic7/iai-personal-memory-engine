@@ -71,11 +71,11 @@ def test_s4_exports_on_read_check():
     assert hasattr(s4, "on_read_check")
     assert callable(s4.on_read_check)
 
-def test_s4_exports_monotropic_proactive_check():
+def test_s4_exports_focus_depth_proactive_check():
     from iai_mcp import s4
 
-    assert hasattr(s4, "monotropic_proactive_check")
-    assert callable(s4.monotropic_proactive_check)
+    assert hasattr(s4, "focus_depth_proactive_check")
+    assert callable(s4.focus_depth_proactive_check)
 
 def test_global_daily_scan_not_implemented():
     from iai_mcp import s4
@@ -208,8 +208,8 @@ def test_s4_on_read_single_hit_returns_empty(tmp_path):
     store.insert(r)
     assert on_read_check(store, [_hit_for(r)], session_id="t") == []
 
-def test_monotropic_check_gate_profile_depth(tmp_path):
-    from iai_mcp.s4 import monotropic_proactive_check
+def test_focus_depth_check_gate_profile_depth(tmp_path):
+    from iai_mcp.s4 import focus_depth_proactive_check
     from iai_mcp.store import MemoryStore
 
     store = MemoryStore(path=tmp_path)
@@ -223,15 +223,15 @@ def test_monotropic_check_gate_profile_depth(tmp_path):
         detail_level=5,
     )
     store.insert(new_rec)
-    profile_state = {"monotropism_depth": {"coding": 0.5}}
+    profile_state = {"focus_depth": {"coding": 0.5}}
 
-    result = monotropic_proactive_check(
+    result = focus_depth_proactive_check(
         store, new_rec, profile_state, session_id="t"
     )
     assert result == []
 
-def test_monotropic_check_gate_detail_level(tmp_path):
-    from iai_mcp.s4 import monotropic_proactive_check
+def test_focus_depth_check_gate_detail_level(tmp_path):
+    from iai_mcp.s4 import focus_depth_proactive_check
     from iai_mcp.store import MemoryStore
 
     store = MemoryStore(path=tmp_path)
@@ -240,15 +240,15 @@ def test_monotropic_check_gate_detail_level(tmp_path):
     v = [0.1] * EMBED_DIM
     new_rec = _make_record(vec=v, community_id=cid, detail_level=3)
     store.insert(new_rec)
-    profile_state = {"monotropism_depth": {"coding": 0.9}}
+    profile_state = {"focus_depth": {"coding": 0.9}}
 
-    result = monotropic_proactive_check(
+    result = focus_depth_proactive_check(
         store, new_rec, profile_state, session_id="t"
     )
     assert result == []
 
-def test_monotropic_check_within_domain_only(tmp_path):
-    from iai_mcp.s4 import monotropic_proactive_check
+def test_focus_depth_check_within_domain_only(tmp_path):
+    from iai_mcp.s4 import focus_depth_proactive_check
     from iai_mcp.store import MemoryStore
 
     store = MemoryStore(path=tmp_path)
@@ -268,15 +268,15 @@ def test_monotropic_check_within_domain_only(tmp_path):
     )
     store.insert(new_rec)
 
-    profile_state = {"monotropism_depth": {"coding": 0.9}}
-    result = monotropic_proactive_check(
+    profile_state = {"focus_depth": {"coding": 0.9}}
+    result = focus_depth_proactive_check(
         store, new_rec, profile_state, session_id="t"
     )
     assert result == []
 
-def test_monotropic_check_pairwise_scan_skip_above_100(tmp_path):
+def test_focus_depth_check_pairwise_scan_skip_above_100(tmp_path):
     from iai_mcp.events import query_events
-    from iai_mcp.s4 import monotropic_proactive_check
+    from iai_mcp.s4 import focus_depth_proactive_check
     from iai_mcp.store import MemoryStore
 
     store = MemoryStore(path=tmp_path)
@@ -296,20 +296,20 @@ def test_monotropic_check_pairwise_scan_skip_above_100(tmp_path):
     )
     store.insert(new_rec)
 
-    profile_state = {"monotropism_depth": {"coding": 0.9}}
-    result = monotropic_proactive_check(
+    profile_state = {"focus_depth": {"coding": 0.9}}
+    result = focus_depth_proactive_check(
         store, new_rec, profile_state, session_id="t"
     )
     assert result == []
-    events = query_events(store, kind="s4_monotropic_skip")
+    events = query_events(store, kind="s4_focus_depth_skip")
     assert len(events) >= 1
     # No topic name in the skip event -- redacted to a non-content token.
     assert "domain" not in events[0]["data"]
     assert not events[0]["domain"]
 
-def test_monotropic_check_emits_event_on_hit(tmp_path):
+def test_focus_depth_check_emits_event_on_hit(tmp_path):
     from iai_mcp.events import query_events
-    from iai_mcp.s4 import monotropic_proactive_check
+    from iai_mcp.s4 import focus_depth_proactive_check
     from iai_mcp.store import MemoryStore
 
     store = MemoryStore(path=tmp_path)
@@ -329,12 +329,12 @@ def test_monotropic_check_emits_event_on_hit(tmp_path):
     )
     store.insert(new_rec)
 
-    profile_state = {"monotropism_depth": {"coding": 0.9}}
-    result = monotropic_proactive_check(
+    profile_state = {"focus_depth": {"coding": 0.9}}
+    result = focus_depth_proactive_check(
         store, new_rec, profile_state, session_id="s-mp"
     )
     assert len(result) >= 1
-    events = query_events(store, kind="s4_monotropic_contradiction")
+    events = query_events(store, kind="s4_focus_depth_contradiction")
     assert len(events) >= 1
     # No topic name in the contradiction event -- redacted to a non-content token.
     assert "domain" not in events[0]["data"]
@@ -343,19 +343,19 @@ def test_monotropic_check_emits_event_on_hit(tmp_path):
     # displayed to the same user whose content it is, not a stored event.
     assert "coding" in result[0]["text"]
 
-def test_monotropic_check_missing_community_id_returns_empty(tmp_path):
-    from iai_mcp.s4 import monotropic_proactive_check
+def test_focus_depth_check_missing_community_id_returns_empty(tmp_path):
+    from iai_mcp.s4 import focus_depth_proactive_check
     from iai_mcp.store import MemoryStore
 
     store = MemoryStore(path=tmp_path)
     v = [1.0] + [0.0] * (EMBED_DIM - 1)
     new_rec = _make_record(text="x", vec=v, community_id=None, detail_level=5)
     store.insert(new_rec)
-    profile_state = {"monotropism_depth": {"coding": 0.9}}
-    assert monotropic_proactive_check(store, new_rec, profile_state, session_id="t") == []
+    profile_state = {"focus_depth": {"coding": 0.9}}
+    assert focus_depth_proactive_check(store, new_rec, profile_state, session_id="t") == []
 
-def test_monotropic_check_community_id_absent_from_name_map_returns_empty(tmp_path):
-    from iai_mcp.s4 import monotropic_proactive_check
+def test_focus_depth_check_community_id_absent_from_name_map_returns_empty(tmp_path):
+    from iai_mcp.s4 import focus_depth_proactive_check
     from iai_mcp.store import MemoryStore
 
     store = MemoryStore(path=tmp_path)
@@ -363,11 +363,11 @@ def test_monotropic_check_community_id_absent_from_name_map_returns_empty(tmp_pa
     v = [1.0] + [0.0] * (EMBED_DIM - 1)
     new_rec = _make_record(text="x", vec=v, community_id=uuid4(), detail_level=5)
     store.insert(new_rec)
-    profile_state = {"monotropism_depth": {"coding": 0.9}}
-    assert monotropic_proactive_check(store, new_rec, profile_state, session_id="t") == []
+    profile_state = {"focus_depth": {"coding": 0.9}}
+    assert focus_depth_proactive_check(store, new_rec, profile_state, session_id="t") == []
 
-def test_monotropic_check_malformed_profile_state_degrades(tmp_path):
-    from iai_mcp.s4 import monotropic_proactive_check
+def test_focus_depth_check_malformed_profile_state_degrades(tmp_path):
+    from iai_mcp.s4 import focus_depth_proactive_check
     from iai_mcp.store import MemoryStore
 
     store = MemoryStore(path=tmp_path)
@@ -376,8 +376,8 @@ def test_monotropic_check_malformed_profile_state_degrades(tmp_path):
     v = [1.0] + [0.0] * (EMBED_DIM - 1)
     new_rec = _make_record(vec=v, community_id=cid, detail_level=5)
     store.insert(new_rec)
-    profile_state = {"monotropism_depth": [0.9]}
-    assert monotropic_proactive_check(store, new_rec, profile_state, session_id="t") == []
+    profile_state = {"focus_depth": [0.9]}
+    assert focus_depth_proactive_check(store, new_rec, profile_state, session_id="t") == []
 
 def test_recall_response_has_hints_field():
     from iai_mcp.types import RecallResponse

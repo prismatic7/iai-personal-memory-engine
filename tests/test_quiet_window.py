@@ -85,7 +85,7 @@ def test_western_9_to_5_user(tmp_path, monkeypatch):
     )
     assert 6 <= duration <= 16, f"duration out of range: {duration}"
 
-def test_nocturnal_autistic_user(tmp_path, monkeypatch):
+def test_nocturnal_profile_user(tmp_path, monkeypatch):
     from iai_mcp.quiet_window import BUCKET_MINUTES, learn_quiet_window
 
     tz = ZoneInfo("Europe/Moscow")

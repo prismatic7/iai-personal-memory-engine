@@ -61,7 +61,7 @@ def test_profile_get_returns_live_knobs(tmp_path):
     store = MemoryStore(path=tmp_path)
     result = dispatch(store, "profile_get", {})
     assert result["live"]["literal_preservation"] == "strong"
-    assert result["live"]["masking_off"] is True
+    assert result["live"]["terse_pragmatics"] is True
     assert result["live"]["task_support"] == "cued_recognition"
     assert result["live"]["scene_construction_scaffold"] is True
     assert result["live"]["wake_depth"] == "minimal"

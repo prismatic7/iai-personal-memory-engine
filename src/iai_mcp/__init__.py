@@ -1,4 +1,4 @@
-"""IAI-MCP -- autistic-style persistent memory MCP server."""
+"""IAI-MCP -- local-first persistent memory MCP server."""
 __author__ = "Areg Noya"
 
 from importlib.metadata import PackageNotFoundError, version

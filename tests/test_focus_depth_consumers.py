@@ -1,4 +1,4 @@
-"""Consumers 1 and 3 of monotropism_depth, rekeyed from `domain:` tags onto
+"""Consumers 1 and 3 of focus_depth, rekeyed from `domain:` tags onto
 topic names resolved through the boot-cached community_names map -- the
 same resolution on write (the tuner) and read (these consumers), so they
 never drift.
@@ -15,7 +15,7 @@ import pytest
 from iai_mcp import core
 from iai_mcp.events import query_events
 from iai_mcp.lilli.profile.knobs import profile_modulation_for_record
-from iai_mcp.s4 import S4_MONOTROPIC_THETA, monotropic_proactive_check
+from iai_mcp.s4 import S4_FOCUS_DEPTH_THETA, focus_depth_proactive_check
 from iai_mcp.store import MemoryStore
 from iai_mcp.types import EMBED_DIM, MemoryRecord
 
@@ -69,56 +69,56 @@ def test_consumer1_applies_gain_when_community_resolves_to_dict_key() -> None:
     cid = uuid4()
     core.set_community_names({str(cid): "music"})
     rec = _record(community_id=cid)
-    state = {"monotropism_depth": {"music": 0.4}}
+    state = {"focus_depth": {"music": 0.4}}
 
     gains = profile_modulation_for_record(rec, state)
 
-    assert gains["monotropism_depth"] == pytest.approx(1.4)
+    assert gains["focus_depth"] == pytest.approx(1.4)
 
 
 def test_consumer1_no_gain_when_community_id_is_none() -> None:
     rec = _record(community_id=None)
-    state = {"monotropism_depth": {"music": 0.4}}
+    state = {"focus_depth": {"music": 0.4}}
 
     gains = profile_modulation_for_record(rec, state)
 
-    assert "monotropism_depth" not in gains
+    assert "focus_depth" not in gains
 
 
 def test_consumer1_no_gain_when_community_id_absent_from_map() -> None:
     core.set_community_names({})
     rec = _record(community_id=uuid4())
-    state = {"monotropism_depth": {"music": 0.4}}
+    state = {"focus_depth": {"music": 0.4}}
 
     gains = profile_modulation_for_record(rec, state)
 
-    assert "monotropism_depth" not in gains
+    assert "focus_depth" not in gains
 
 
 def test_consumer1_no_gain_when_resolved_name_absent_from_dict() -> None:
     cid = uuid4()
     core.set_community_names({str(cid): "film"})
     rec = _record(community_id=cid)
-    state = {"monotropism_depth": {"music": 0.4}}
+    state = {"focus_depth": {"music": 0.4}}
 
     gains = profile_modulation_for_record(rec, state)
 
-    assert "monotropism_depth" not in gains
+    assert "focus_depth" not in gains
 
 
 def test_consumer1_never_raises_on_view_without_community_id_attribute() -> None:
     cid = uuid4()
     core.set_community_names({str(cid): "music"})
     view = _ViewWithoutCommunityId(tags=[])
-    state = {"monotropism_depth": {"music": 0.4}}
+    state = {"focus_depth": {"music": 0.4}}
 
     gains = profile_modulation_for_record(view, state)
 
-    assert "monotropism_depth" not in gains
+    assert "focus_depth" not in gains
 
 
 # ---------------------------------------------------------------------------
-# Consumer 3: s4.monotropic_proactive_check
+# Consumer 3: s4.focus_depth_proactive_check
 # ---------------------------------------------------------------------------
 
 
@@ -129,8 +129,8 @@ def test_consumer3_gate_reachable_only_above_theta(tmp_path) -> None:
     rec = _record(community_id=cid, detail_level=5)
     store.insert(rec)
 
-    below = monotropic_proactive_check(
-        store, rec, {"monotropism_depth": {"music": S4_MONOTROPIC_THETA}}, session_id="t",
+    below = focus_depth_proactive_check(
+        store, rec, {"focus_depth": {"music": S4_FOCUS_DEPTH_THETA}}, session_id="t",
     )
     assert below == []
 
@@ -140,17 +140,17 @@ def test_consumer3_and_consumer1_resolve_the_same_name_for_the_same_record(tmp_p
     key for both consumers, so neither silently drifts from the other."""
     cid = uuid4()
     core.set_community_names({str(cid): "music"})
-    depth = 0.9  # above S4_MONOTROPIC_THETA (0.7), a manual profile_set value
-    state = {"monotropism_depth": {"music": depth}}
+    depth = 0.9  # above S4_FOCUS_DEPTH_THETA (0.7), a manual profile_set value
+    state = {"focus_depth": {"music": depth}}
 
     rec = _record(community_id=cid, detail_level=5)
     store = MemoryStore(path=tmp_path)
     store.insert(rec)
 
     gains = profile_modulation_for_record(rec, state)
-    assert gains["monotropism_depth"] == pytest.approx(1.0 + depth)
+    assert gains["focus_depth"] == pytest.approx(1.0 + depth)
 
-    hints = monotropic_proactive_check(store, rec, state, session_id="t")
+    hints = focus_depth_proactive_check(store, rec, state, session_id="t")
     # No sibling records share the resolved name, so no contradiction fires
     # -- but the gate itself (name resolves, depth clears theta) must not
     # short-circuit before the detail/pairwise checks.
@@ -171,13 +171,13 @@ def test_consumer3_same_domain_rebuilt_by_resolved_name_not_by_tag(tmp_path) -> 
     new_rec = _record(community_id=music_cid, detail_level=5)
     store.insert(new_rec)
 
-    state = {"monotropism_depth": {"music": 0.9}}
+    state = {"focus_depth": {"music": 0.9}}
     # A near-duplicate embedding on the music sibling should be scored; the
     # film sibling (different resolved name) must never enter same_domain.
     music_sibling.embedding = list(new_rec.embedding)
     store.update(music_sibling)
 
-    hints = monotropic_proactive_check(store, new_rec, state, session_id="t")
+    hints = focus_depth_proactive_check(store, new_rec, state, session_id="t")
     source_ids = {sid for h in hints for sid in h["source_ids"]}
     assert str(film_sibling.id) not in source_ids
 
@@ -194,11 +194,11 @@ def test_consumer3_skip_event_carries_no_topic_name(tmp_path) -> None:
     new_rec = _record(community_id=cid, detail_level=5)
     store.insert(new_rec)
 
-    state = {"monotropism_depth": {"music": 0.9}}
-    result = monotropic_proactive_check(store, new_rec, state, session_id="t")
+    state = {"focus_depth": {"music": 0.9}}
+    result = focus_depth_proactive_check(store, new_rec, state, session_id="t")
     assert result == []
 
-    events = query_events(store, kind="s4_monotropic_skip")
+    events = query_events(store, kind="s4_focus_depth_skip")
     assert events
     assert "domain" not in events[0]["data"]
     assert not events[0]["domain"]

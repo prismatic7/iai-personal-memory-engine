@@ -1,4 +1,4 @@
-"""Consumer 2 of monotropism_depth -- the monotropic-focus hit-reorder,
+"""Consumer 2 of focus_depth -- the focus-depth hit-reorder,
 rekeyed off `community_id` resolved through the same boot-cached
 community_names map the writer and the other consumers use, so the
 `domain:`-tag reorder (which nothing ever emitted) becomes reachable.
@@ -14,7 +14,7 @@ import pytest
 
 from iai_mcp import core
 from iai_mcp.core._serializers import _hit_to_json
-from iai_mcp.response_decorator import _apply_monotropic_focus, apply_profile
+from iai_mcp.response_decorator import _apply_focus_depth, apply_profile
 from iai_mcp.store import MemoryStore, flush_record_buffer
 from iai_mcp.types import EMBED_DIM, MemoryHit, MemoryRecord
 from tests._helpers import stub_embedder_for_store
@@ -59,7 +59,7 @@ def test_promotes_exact_authority_hit_in_hot_topic():
     hot_id = uuid4()
     cold_id = uuid4()
     core.set_community_names({str(hot_id): "jazz", str(cold_id): "cooking"})
-    state = {"monotropism_depth": {"jazz": 0.8}}
+    state = {"focus_depth": {"jazz": 0.8}}
     resp = {
         "hits": [
             _hit("r-cold-1", "cosine 0.900", str(cold_id)),
@@ -80,7 +80,7 @@ def test_promotes_exact_authority_hit_in_hot_topic():
 
 def test_noop_when_community_names_map_is_empty():
     core.set_community_names({})
-    state = {"monotropism_depth": {"jazz": 0.9}}
+    state = {"focus_depth": {"jazz": 0.9}}
     resp = {
         "hits": [
             _hit("r1", "cosine 0.9", str(uuid4())),
@@ -99,7 +99,7 @@ def test_noop_when_community_names_map_is_empty():
 def test_noop_at_or_below_reachability_threshold(depth):
     hot_id = uuid4()
     core.set_community_names({str(hot_id): "jazz"})
-    state = {"monotropism_depth": {"jazz": depth}}
+    state = {"focus_depth": {"jazz": depth}}
     resp = {
         "hits": [
             _hit("r1", "cosine 0.9", str(uuid4())),
@@ -119,7 +119,7 @@ def test_noop_at_or_below_reachability_threshold(depth):
 def test_hit_without_community_id_sorts_non_hot_never_crashes():
     hot_id = uuid4()
     core.set_community_names({str(hot_id): "jazz"})
-    state = {"monotropism_depth": {"jazz": 0.9}}
+    state = {"focus_depth": {"jazz": 0.9}}
     resp = {
         "hits": [
             {"record_id": "r-no-cid", "score": 0.5, "reason": "cosine",
@@ -140,7 +140,7 @@ def test_hit_without_community_id_sorts_non_hot_never_crashes():
 def test_stable_sort_preserves_relative_order_within_bucket():
     hot_id = uuid4()
     core.set_community_names({str(hot_id): "jazz"})
-    state = {"monotropism_depth": {"jazz": 0.9}}
+    state = {"focus_depth": {"jazz": 0.9}}
     resp = {
         "hits": [
             _hit("r-hot-a", "cosine 0.6", str(hot_id)),
@@ -172,7 +172,7 @@ def test_community_names_resolved_once_per_decoration(monkeypatch):
 
     monkeypatch.setattr(core, "get_community_names", _counting_get)
 
-    state = {"monotropism_depth": {"jazz": 0.9}}
+    state = {"focus_depth": {"jazz": 0.9}}
     resp = {
         "hits": [
             _hit("r1", "cosine", str(uuid4())),
@@ -184,7 +184,7 @@ def test_community_names_resolved_once_per_decoration(monkeypatch):
         "anti_hits": [],
     }
 
-    _apply_monotropic_focus(resp, state)
+    _apply_focus_depth(resp, state)
 
     assert len(calls) == 1, (
         f"get_community_names must resolve once before the sort, not per comparison: {len(calls)} calls"
@@ -335,13 +335,13 @@ def test_authority_hit_carries_community_id_end_to_end_and_gets_promoted(tmp_pat
     _core.ensure_profile_hydrated(store)
     core.set_community_names({str(community_hot): "jazz"})
     saved_profile = dict(_core._profile_state)
-    _core._profile_state["monotropism_depth"] = {"jazz": 0.8}
+    _core._profile_state["focus_depth"] = {"jazz": 0.8}
     try:
         store._build_exact_index_sync()
         _pm._last_recall_latency_ms = 0.0
         resp = _core.dispatch(store, "memory_recall", {
             "cue": "irrelevant, embedder stubbed",
-            "session_id": "monotropism-decorator-authority-test",
+            "session_id": "focus-depth-decorator-authority-test",
             "budget_tokens": 2000,
             "cue_embedding": cue_vec,
         })

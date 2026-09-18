@@ -284,17 +284,26 @@ iai-mcp self-update
 
 ## About the name
 
-**IAI — Independent Autistic Intelligence** describes the memory design.
+**iai** is a personal memory engine: one person's memory, on one machine, used
+by the assistant they already have.
 
-- **Independent:** the engine, store, embeddings, and dashboard run locally.
-- **Autistic:** literal preservation, precise cues, sustained focus, and rare
-  events retained as rare rather than smoothed into a typical summary. This is
-  an operational design description, not a diagnosis or casual metaphor.
-- **Intelligence:** used in the systems sense — a process that observes,
-  adapts, reorganizes itself, and remains viable over time.
+The design is local-first and verbatim-first. The engine, store, embeddings,
+and native core all run on your machine; there is no account, no telemetry, and
+no cloud memory dependency. Retrieval keeps the original episodic wording rather
+than replacing it with a summary, and builds semantic and procedural structure
+around it. Rare events stay rare instead of being smoothed toward a typical
+case, and revision history is retained.
 
-“Personal memory engine” describes the scope: one person's memory, on one
-machine, used by the assistant they already have.
+The trade-off is more local storage and a stricter retrieval path, in exchange
+for preserving detail. Most memory layers aggressively extract a gist; this one
+keeps the wording and derives structure from it.
+
+*Earlier versions of this project described the design through a clinical
+vocabulary drawn from autism research. That framing has been removed: the
+behaviours are real retrieval and ranking choices, but labelling an ML system
+with a human psychological profile overstates what the system does and says
+something it has no business saying about people. The behaviours remain, under
+operational names.*
 
 ---
 

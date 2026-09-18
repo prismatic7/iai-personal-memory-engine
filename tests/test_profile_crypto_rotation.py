@@ -71,7 +71,7 @@ def _minimal_record(literal: str, embedding: list[float] | None = None) -> Memor
 
 def test_reencrypt_profile_blob_round_trips_through_a_rotation(tmp_path) -> None:
     store = MemoryStore(path=tmp_path)
-    knobs = {"literal_preservation": "loose", "monotropism_depth": {"alice": 0.7}}
+    knobs = {"literal_preservation": "loose", "focus_depth": {"alice": 0.7}}
     posterior = {"literal_preservation": {"alpha": 2.0, "beta": 1.0}}
     pins = {"literal_preservation": "2026-08-01T10:00:00+00:00"}
     assert save_profile_state(store, knobs=knobs, posterior=posterior, pins=pins) is True
@@ -109,7 +109,7 @@ def test_reencrypt_profile_blob_round_trips_through_a_rotation(tmp_path) -> None
 def test_reencrypt_profile_blob_leaves_unopenable_blob_untouched(tmp_path) -> None:
     store = MemoryStore(path=tmp_path)
     save_profile_state(
-        store, knobs={"masking_off": True}, posterior={}, pins={}
+        store, knobs={"terse_pragmatics": True}, posterior={}, pins={}
     )
     raw_before = _read_raw_meta(store)
     assert is_encrypted(raw_before)
@@ -158,7 +158,7 @@ def test_save_guard_sidecars_a_blob_stranded_by_a_rotation_gap(tmp_path) -> None
     # now unreadable under the current key, matching the pre-fix gap
 
     assert (
-        save_profile_state(store, knobs={"masking_off": True}, posterior={}, pins={})
+        save_profile_state(store, knobs={"terse_pragmatics": True}, posterior={}, pins={})
         is True
     )
 
@@ -176,7 +176,7 @@ def test_save_guard_sidecars_a_blob_stranded_by_a_rotation_gap(tmp_path) -> None
 
     blob = load_profile_state(store)
     assert blob is not None
-    assert blob["knobs"]["masking_off"] is True
+    assert blob["knobs"]["terse_pragmatics"] is True
 
 
 # ---------------------------------------------------------------------------

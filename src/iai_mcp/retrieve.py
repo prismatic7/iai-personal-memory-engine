@@ -489,10 +489,10 @@ def contradict(
     invalidate_temporal_validity_cache(store)
 
     try:
-        from iai_mcp.s4 import monotropic_proactive_check
-        monotropic_proactive_check(store, new_rec, {}, session_id="-")
+        from iai_mcp.s4 import focus_depth_proactive_check
+        focus_depth_proactive_check(store, new_rec, {}, session_id="-")
     except (OSError, ValueError, RuntimeError) as exc:
-        log.warning("monotropic_proactive_check failed: %s", exc)
+        log.warning("focus_depth_proactive_check failed: %s", exc)
 
     return ReconsolidationReceipt(
         original_id=original_id,

@@ -3,11 +3,11 @@ from __future__ import annotations
 import inspect
 import os
 
-def test_brain_cognitive_mode_is_autistic():
+def test_brain_cognitive_mode_is_profile():
     from iai_mcp.lilli.brain import Brain
 
     b = Brain()
-    assert b.cognitive_mode == "autistic"
+    assert b.cognitive_mode == "profile"
 
 def test_brain_cognitive_mode_no_init_kwarg():
     from iai_mcp.lilli.brain import Brain
@@ -93,11 +93,11 @@ def test_brain_with_hippo_conn_stored():
     b = Brain(hippo_conn=sentinel)
     assert b.hippo_conn is sentinel
 
-def test_brain_repr_includes_autistic():
+def test_brain_repr_includes_profile():
     from iai_mcp.lilli.brain import Brain
 
     b = Brain()
-    assert b.cognitive_mode == "autistic"
+    assert b.cognitive_mode == "profile"
     _ = repr(b)
 
 def test_brain_recall_signature():

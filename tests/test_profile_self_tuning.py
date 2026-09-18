@@ -1,5 +1,5 @@
 """Persist-on-set durability, pin-at-set-time, and the extensible tuning
-spec registry for the autistic-cognition profile.
+spec registry for the profile-cognition profile.
 
 Assertions on the durable blob read and decrypt the raw ``_hippo_meta`` row
 directly -- never through ``profile_get``, which returns the registry
@@ -103,40 +103,40 @@ def test_user_set_persists_blob_immediately(tmp_path) -> None:
     store = MemoryStore(path=tmp_path)
     state = default_state()
 
-    result = profile_set("dunn_quadrant", "seeking", state, store=store)
+    result = profile_set("sensory_weighting", "raised", state, store=store)
 
     assert result["status"] == "ok"
     blob = _read_decrypted_blob(store)
-    assert blob["knobs"]["dunn_quadrant"] == "seeking"
+    assert blob["knobs"]["sensory_weighting"] == "raised"
 
 
 def test_user_set_pins_knob_at_set_time(tmp_path) -> None:
     store = MemoryStore(path=tmp_path)
     state = default_state()
 
-    profile_set("dunn_quadrant", "seeking", state, store=store)
+    profile_set("sensory_weighting", "raised", state, store=store)
 
     blob = _read_decrypted_blob(store)
-    assert "dunn_quadrant" in blob["pins"]
+    assert "sensory_weighting" in blob["pins"]
     # Must parse as an ISO-8601 timestamp -- raises ValueError otherwise.
-    datetime.fromisoformat(blob["pins"]["dunn_quadrant"])
+    datetime.fromisoformat(blob["pins"]["sensory_weighting"])
 
 
 def test_user_set_survives_fresh_process_hydration(tmp_path) -> None:
     store_a = MemoryStore(path=tmp_path)
     state = default_state()
-    profile_set("dunn_quadrant", "seeking", state, store=store_a)
+    profile_set("sensory_weighting", "raised", state, store=store_a)
     store_a.close()
 
     core._profile_state.clear()
     core._profile_state.update(default_state())
-    assert core._profile_state["dunn_quadrant"] == "neutral"
+    assert core._profile_state["sensory_weighting"] == "neutral"
 
     store_b = MemoryStore(path=tmp_path)
     result = core.ensure_profile_hydrated(store_b)
 
     assert result["hydrated"] is True
-    assert core._profile_state["dunn_quadrant"] == "seeking"
+    assert core._profile_state["sensory_weighting"] == "raised"
     assert core.LIVE_KNOBS is core._profile_state
 
 
@@ -144,7 +144,7 @@ def test_profile_updated_event_source_defaults_to_user(tmp_path) -> None:
     store = MemoryStore(path=tmp_path)
     state = default_state()
 
-    profile_set("dunn_quadrant", "seeking", state, store=store)
+    profile_set("sensory_weighting", "raised", state, store=store)
 
     events = query_events(store, kind="profile_updated", limit=10)
     assert events
@@ -155,7 +155,7 @@ def test_profile_updated_event_source_tuner_is_not_pinned(tmp_path) -> None:
     store = MemoryStore(path=tmp_path)
     state = default_state()
 
-    profile_set("dunn_quadrant", "seeking", state, store=store, source="tuner")
+    profile_set("sensory_weighting", "raised", state, store=store, source="tuner")
 
     events = query_events(store, kind="profile_updated", limit=10)
     assert events
@@ -168,15 +168,15 @@ def test_pins_accumulate_across_successive_user_sets(tmp_path) -> None:
     store = MemoryStore(path=tmp_path)
     state = default_state()
 
-    profile_set("dunn_quadrant", "seeking", state, store=store)
-    profile_set("masking_off", False, state, store=store)
+    profile_set("sensory_weighting", "raised", state, store=store)
+    profile_set("terse_pragmatics", False, state, store=store)
 
     blob = _read_decrypted_blob(store)
-    assert set(blob["pins"]) == {"dunn_quadrant", "masking_off"}, (
+    assert set(blob["pins"]) == {"sensory_weighting", "terse_pragmatics"}, (
         "a later user set must not collapse an earlier pin"
     )
-    assert blob["knobs"]["dunn_quadrant"] == "seeking"
-    assert blob["knobs"]["masking_off"] is False
+    assert blob["knobs"]["sensory_weighting"] == "raised"
+    assert blob["knobs"]["terse_pragmatics"] is False
 
 
 def test_user_set_to_incumbent_value_still_pins(tmp_path) -> None:
@@ -185,13 +185,13 @@ def test_user_set_to_incumbent_value_still_pins(tmp_path) -> None:
     against auto-tuning just as much as one who changes it."""
     store = MemoryStore(path=tmp_path)
     state = default_state()
-    assert state["dunn_quadrant"] == "neutral"
+    assert state["sensory_weighting"] == "neutral"
 
-    result = profile_set("dunn_quadrant", "neutral", state, store=store)
+    result = profile_set("sensory_weighting", "neutral", state, store=store)
 
     assert result["status"] == "ok"
     blob = _read_decrypted_blob(store)
-    assert "dunn_quadrant" in blob["pins"], (
+    assert "sensory_weighting" in blob["pins"], (
         "a no-op-valued user set must still record a pin"
     )
 
@@ -209,14 +209,14 @@ def test_user_set_with_failed_persist_does_not_report_bare_ok(
         "iai_mcp.lilli.profile.persistence.persist_after_user_set", _boom
     )
 
-    result = profile_set("dunn_quadrant", "seeking", state, store=store)
+    result = profile_set("sensory_weighting", "raised", state, store=store)
 
     assert result["status"] != "ok", (
         "a failed durable persist must not be disguised as full success"
     )
     assert result["persisted"] is False
     # The live in-process value still updates this session.
-    assert state["dunn_quadrant"] == "seeking"
+    assert state["sensory_weighting"] == "raised"
     events = query_events(store, kind="profile_state_unreadable", limit=10)
     assert events, "a failed persist must surface a warning event"
     assert events[-1]["data"]["reason"] == "persist_after_user_set_failed"
@@ -236,7 +236,7 @@ def test_user_set_with_persist_returning_false_does_not_report_bare_ok(
         lambda *_args, **_kwargs: False,
     )
 
-    result = profile_set("dunn_quadrant", "seeking", state, store=store)
+    result = profile_set("sensory_weighting", "raised", state, store=store)
 
     assert result["status"] != "ok"
     assert result["persisted"] is False
@@ -255,20 +255,20 @@ def test_set_preserves_existing_posterior(tmp_path) -> None:
     )
     state = default_state()
 
-    profile_set("dunn_quadrant", "seeking", state, store=store)
+    profile_set("sensory_weighting", "raised", state, store=store)
 
     blob = _read_decrypted_blob(store)
     assert blob["posterior"] == {"literal_preservation": {"alphas": {"strong": 2.0}}}
-    assert blob["knobs"]["dunn_quadrant"] == "seeking"
+    assert blob["knobs"]["sensory_weighting"] == "raised"
 
 
 def test_set_without_store_mutates_state_writes_no_blob() -> None:
     state = default_state()
 
-    result = profile_set("dunn_quadrant", "seeking", state)
+    result = profile_set("sensory_weighting", "raised", state)
 
     assert result["status"] == "ok"
-    assert state["dunn_quadrant"] == "seeking"
+    assert state["sensory_weighting"] == "raised"
 
 
 def test_events_whitelist_accepts_tuning_kinds() -> None:
@@ -297,7 +297,7 @@ def test_save_preserves_undecryptable_existing_blob_as_orphan(tmp_path) -> None:
     _write_raw_meta(store, PROFILE_META_KEY, wrong_ct)
 
     assert (
-        save_profile_state(store, knobs={"masking_off": True}, posterior={}, pins={})
+        save_profile_state(store, knobs={"terse_pragmatics": True}, posterior={}, pins={})
         is True
     )
 
@@ -312,7 +312,7 @@ def test_save_preserves_undecryptable_existing_blob_as_orphan(tmp_path) -> None:
     # The new blob is written and readable.
     blob = load_profile_state(store)
     assert blob is not None
-    assert blob["knobs"]["masking_off"] is True
+    assert blob["knobs"]["terse_pragmatics"] is True
 
 
 def test_save_never_overwrites_an_earlier_orphan(tmp_path) -> None:
@@ -325,7 +325,7 @@ def test_save_never_overwrites_an_earlier_orphan(tmp_path) -> None:
         associated_data=b"embed_identity",
     )
     _write_raw_meta(store, PROFILE_META_KEY, wrong_ct)
-    save_profile_state(store, knobs={"masking_off": True}, posterior={}, pins={})
+    save_profile_state(store, knobs={"terse_pragmatics": True}, posterior={}, pins={})
     first_orphan = _read_raw_meta(store, PROFILE_META_ORPHAN_KEY)
     assert first_orphan == wrong_ct
 
@@ -337,7 +337,7 @@ def test_save_never_overwrites_an_earlier_orphan(tmp_path) -> None:
         associated_data=b"some_other_field",
     )
     _write_raw_meta(store, PROFILE_META_KEY, other_wrong_ct)
-    save_profile_state(store, knobs={"masking_off": False}, posterior={}, pins={})
+    save_profile_state(store, knobs={"terse_pragmatics": False}, posterior={}, pins={})
 
     second_orphan = _read_raw_meta(store, PROFILE_META_ORPHAN_KEY)
     assert second_orphan == first_orphan, "the write-once orphan slot must not be replaced"
@@ -345,9 +345,9 @@ def test_save_never_overwrites_an_earlier_orphan(tmp_path) -> None:
 
 def test_save_on_readable_existing_blob_does_not_write_orphan(tmp_path) -> None:
     store = MemoryStore(path=tmp_path)
-    save_profile_state(store, knobs={"masking_off": True}, posterior={}, pins={})
+    save_profile_state(store, knobs={"terse_pragmatics": True}, posterior={}, pins={})
 
-    save_profile_state(store, knobs={"masking_off": False}, posterior={}, pins={})
+    save_profile_state(store, knobs={"terse_pragmatics": False}, posterior={}, pins={})
 
     assert _read_raw_meta(store, PROFILE_META_ORPHAN_KEY) is None
 
@@ -370,9 +370,9 @@ def test_registry_populated_specs_are_signal_backed() -> None:
 # User-set-only: none of these may ever gain a TUNING_SPECS entry.
 NOT_TUNABLE_KNOBS = (
     "interest_boost",
-    "dunn_quadrant",
-    "demand_avoidance_tolerance",
-    "masking_off",
+    "sensory_weighting",
+    "phrasing_mode",
+    "terse_pragmatics",
     "scene_construction_scaffold",
     "literal_preservation",
 )
@@ -901,8 +901,12 @@ def test_interrupt_mid_loop_leaves_globals_pristine(tmp_path, monkeypatch) -> No
     now = datetime.now(timezone.utc)
     monkeypatch.setattr("iai_mcp.lilli.cycle.sleep_pipeline._utc_now", lambda: now)
 
-    assert sorted(PROFILE_KNOBS)[2] == "inertia_awareness"
-    assert sorted(PROFILE_KNOBS)[-1] == "wake_depth"
+    # Precondition canary: the registry is intact and carries the knobs this
+    # test seeds. Asserted by membership, not by sorted position -- a sorted
+    # index is an incidental property of the knob names, not a contract.
+    assert len(PROFILE_KNOBS) == 10
+    assert "inertia_awareness" in PROFILE_KNOBS
+    assert "wake_depth" in PROFILE_KNOBS
 
     def _seed_both_knobs(target_store: MemoryStore) -> None:
         # Long, evenly-spaced gaps vote inertia_awareness True; every session
@@ -991,7 +995,7 @@ def test_report_covers_every_registry_knob_with_closed_vocabulary(
 
     not_tunable = {r["knob"] for r in rows if r["reason"] == "skipped_not_tunable"}
     assert not_tunable == set(PROFILE_KNOBS) - {
-        "wake_depth", "inertia_awareness", "task_support", "monotropism_depth",
+        "wake_depth", "inertia_awareness", "task_support", "focus_depth",
     }
 
 

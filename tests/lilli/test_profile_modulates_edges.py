@@ -62,7 +62,7 @@ def test_profile_modulation_for_record_empty_profile():
     assert isinstance(gains, dict)
     assert gains == {} or all(v == 1.0 for v in gains.values())
 
-def test_profile_modulation_for_record_monotropism_depth_community_name():
+def test_profile_modulation_for_record_focus_depth_community_name():
     from iai_mcp.profile import profile_modulation_for_record
 
     cid = uuid4()
@@ -70,10 +70,10 @@ def test_profile_modulation_for_record_monotropism_depth_community_name():
     rec = _rec(text="deep coding fact", community_id=cid)
     gains = profile_modulation_for_record(
         rec,
-        profile_state={"monotropism_depth": {"coding": 0.9}},
+        profile_state={"focus_depth": {"coding": 0.9}},
     )
-    assert "monotropism_depth" in gains
-    assert gains["monotropism_depth"] > 1.0
+    assert "focus_depth" in gains
+    assert gains["focus_depth"] > 1.0
 
 def test_profile_modulation_for_record_wrong_community_no_gain():
     from iai_mcp.profile import profile_modulation_for_record
@@ -83,9 +83,9 @@ def test_profile_modulation_for_record_wrong_community_no_gain():
     rec = _rec(text="gardening fact", community_id=cid)
     gains = profile_modulation_for_record(
         rec,
-        profile_state={"monotropism_depth": {"coding": 0.9}},
+        profile_state={"focus_depth": {"coding": 0.9}},
     )
-    assert "monotropism_depth" not in gains
+    assert "focus_depth" not in gains
 
 def test_profile_modulation_for_record_interest_boost():
     from iai_mcp.profile import profile_modulation_for_record
@@ -134,7 +134,7 @@ def test_profile_modulation_edge_created_on_knob_affect(tmp_path, monkeypatch):
     runtime_cid = _runtime_community_id(assignment, r.id)
     assert runtime_cid is not None
     core.set_community_names({str(runtime_cid): "coding"})
-    profile_state = {"monotropism_depth": {"coding": 0.9}}
+    profile_state = {"focus_depth": {"coding": 0.9}}
 
     recall_for_response(
         store=store,
@@ -163,7 +163,7 @@ def test_profile_modulates_edge_weight_positive(tmp_path):
 
     graph, assignment, rc = retrieve.build_runtime_graph(store)
     profile_state = {
-        "monotropism_depth": {"coding": 0.9},
+        "focus_depth": {"coding": 0.9},
         "interest_boost": 0.5,
     }
 
@@ -195,7 +195,7 @@ def test_profile_modulation_gain_populates_on_record(tmp_path):
     runtime_cid = _runtime_community_id(assignment, r.id)
     assert runtime_cid is not None
     core.set_community_names({str(runtime_cid): "coding"})
-    profile_state = {"monotropism_depth": {"coding": 0.9}}
+    profile_state = {"focus_depth": {"coding": 0.9}}
 
     resp = recall_for_response(
         store=store,

@@ -1,4 +1,4 @@
-"""Autistic-cognition profile registry -- 10 sealed knobs (9 AUTIST + 1 wake_depth),
+"""Profile-cognition profile registry -- 10 sealed knobs (9 MEM + 1 wake_depth),
 Bayesian tuner, double_empathy invariant.
 
 Retrieval-policy RL and trust refinement are exposed from lilli.profile.tuner.

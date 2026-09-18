@@ -176,7 +176,7 @@ def test_query_similar_still_works_after_encryption(tmp_path):
 def test_encrypted_row_cannot_be_decrypted_with_wrong_key(tmp_path, monkeypatch):
     from iai_mcp.store import MemoryStore
     store = MemoryStore(path=tmp_path)
-    rec = _make(text="sensitive")
+    rec = _make(text="heightened")
     store.insert(rec)
 
     store._crypto_key = b"\xff" * 32  # type: ignore[attr-defined]

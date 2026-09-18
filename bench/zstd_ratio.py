@@ -128,7 +128,7 @@ def _gen_profile_modulation_gain_json(rng: random.Random) -> str:
     record."""
     n_keys = rng.randint(0, 11)
     knob_names = (
-        "monotropism_pin", "epf_boost", "pattern_separation_gate",
+        "focus_pin", "epf_boost", "pattern_separation_gate",
         "hippea_arousal", "rem_pressure", "wake_depth", "schema_mine_rate",
         "centrality_blend", "rich_club_bonus", "active_forgetting",
         "stc_decay",

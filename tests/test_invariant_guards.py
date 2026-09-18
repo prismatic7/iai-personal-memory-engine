@@ -309,7 +309,7 @@ def test_no_hardcoded_clock_time_in_quiet_window():
 
 # ---------------------------------------------------------------------------
 # Sealed registry: PROFILE_KNOBS has exactly 10 entries
-# (9 autistic-kernel + 1 operator wake_depth MCP-12)
+# (9 profile-kernel + 1 operator wake_depth MCP-12)
 # ---------------------------------------------------------------------------
 
 def test_profile_knobs_still_sealed():
@@ -334,8 +334,8 @@ def test_no_profile_knob_in_session_start_payload(tmp_path):
     wake_depth=minimal (<=30 raw tok design budget).
 
     The legacy L0 identity kernel (`_seed_l0_identity`) historically recites
-    a handful of autistic-kernel defaults inline in the literal_surface
-    ('literal_preservation=strong, masking_off=true, ...'). That predates
+    a handful of profile-kernel defaults inline in the literal_surface
+    ('literal_preservation=strong, terse_pragmatics=true, ...'). That predates
     this guard and lives inside the user's identity record itself, not a
     decorator output — so it's scoped into the standard/deep l0 segment and
     explicitly exempt from this grep guard.

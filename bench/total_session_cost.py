@@ -38,7 +38,7 @@ _SCRIPT: list[dict] = [
     },
     {
         "kind": "recall_cross_community",
-        "input": "What is the connection between the literal_preservation knob and the autistic kernel?",
+        "input": "What is the connection between the literal_preservation knob and the focus_depth knob?",
     },
     {
         "kind": "save",

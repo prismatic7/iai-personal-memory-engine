@@ -35,7 +35,7 @@ def test_pda_tolerance_collaborative_softens_imperatives() -> None:
             "If you Try refactoring later, beware",
         ]),
     ])
-    profile = {"demand_avoidance_tolerance": "collaborative"}
+    profile = {"phrasing_mode": "collaborative"}
     apply_profile(response, profile)
     assert response["hits"][0]["adjacent_suggestions"] == [
         "You could try refactoring X",
@@ -47,7 +47,7 @@ def test_pda_tolerance_collaborative_softens_imperatives() -> None:
 
 def test_pda_tolerance_avoidant_prepends_fyi() -> None:
     response = _resp([_hit("orig", suggestions=["Try X", "Run Y", "ad-hoc note"])])
-    profile = {"demand_avoidance_tolerance": "avoidant"}
+    profile = {"phrasing_mode": "indirect"}
     apply_profile(response, profile)
     assert response["hits"][0]["adjacent_suggestions"] == [
         "FYI: Try X",
@@ -60,7 +60,7 @@ def test_pda_tolerance_neutral_no_op() -> None:
     response = _resp([_hit("orig", suggestions=list(suggestions))])
     snapshot = copy.deepcopy(response)
     profile = {
-        "demand_avoidance_tolerance": "neutral",
+        "phrasing_mode": "neutral",
         "scene_construction_scaffold": False,
     }
     apply_profile(response, profile)

@@ -199,7 +199,7 @@ def test_provisional_schemas_below_entropy_empty(tmp_path):
     store = MemoryStore(path=tmp_path)
     assert provisional_schemas_for_recall(store, [], entropy_bits=0.5) == []
 
-def test_autistic_threshold_stricter_than_nt():
+def test_profile_threshold_stricter_than_default():
     from iai_mcp.schema import (
         AUTO_INDUCT_COOCCURRENCE,
         AUTO_INDUCT_CONFIDENCE,

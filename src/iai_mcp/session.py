@@ -589,7 +589,7 @@ def write_continuity_cache(
 
     if existing_text == text and path.exists():
         # mtime means "last confirmed current," not "last content change" --
-        # a stable, unchanging monotropic session must not read as stale
+        # a stable, unchanging focus-depth session must not read as stale
         # once RUNNING_AGENT_TTL_HOURS of identical content has elapsed.
         try:
             os.utime(path, None)

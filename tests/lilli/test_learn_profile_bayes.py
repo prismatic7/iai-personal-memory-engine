@@ -16,19 +16,19 @@ def test_signal_weights_d20():
     assert SIGNAL_WEIGHT["explicit"] == 1.0
 
 def test_bayesian_update_bool_implicit():
-    state = {"masking_off": True}
+    state = {"terse_pragmatics": True}
     posterior = {}
     new_val, new_post = bayesian_update(
-        "masking_off", "implicit", False, state, posterior,
+        "terse_pragmatics", "implicit", False, state, posterior,
     )
-    assert "masking_off" in new_post
-    assert new_post["masking_off"]["beta"] > 1.0
+    assert "terse_pragmatics" in new_post
+    assert new_post["terse_pragmatics"]["beta"] > 1.0
 
 def test_bayesian_update_bool_explicit_flips():
-    state = {"masking_off": True}
+    state = {"terse_pragmatics": True}
     posterior = {}
     new_val, new_post = bayesian_update(
-        "masking_off", "explicit", False, state, posterior,
+        "terse_pragmatics", "explicit", False, state, posterior,
     )
     assert new_val is False
 
@@ -52,16 +52,16 @@ def test_bayesian_update_float_converges():
     assert abs(state["interest_boost"] - 0.6) < 0.05
 
 def test_bayesian_update_respects_signal_weight():
-    state = {"masking_off": True}
+    state = {"terse_pragmatics": True}
     posterior = {}
     _, posterior = bayesian_update(
-        "masking_off", "explicit", False, state, posterior,
+        "terse_pragmatics", "explicit", False, state, posterior,
     )
     for _ in range(3):
         _, posterior = bayesian_update(
-            "masking_off", "implicit", True, state, posterior,
+            "terse_pragmatics", "implicit", True, state, posterior,
         )
-    assert state["masking_off"] is False
+    assert state["terse_pragmatics"] is False
 
 def test_bayesian_update_unknown_knob_noop():
     state = {}
@@ -71,16 +71,16 @@ def test_bayesian_update_unknown_knob_noop():
     assert "does_not_exist" not in post
 
 def test_bayesian_update_dict_per_key():
-    state = {"monotropism_depth": {}}
+    state = {"focus_depth": {}}
     posterior = {}
     _, posterior = bayesian_update(
-        "monotropism_depth", "explicit",
+        "focus_depth", "explicit",
         {"coding": 0.8, "gardening": 0.3}, state, posterior,
     )
-    assert "coding" in state["monotropism_depth"]
-    assert "gardening" in state["monotropism_depth"]
-    assert abs(state["monotropism_depth"]["coding"] - 0.8) < 0.01
-    assert abs(state["monotropism_depth"]["gardening"] - 0.3) < 0.01
+    assert "coding" in state["focus_depth"]
+    assert "gardening" in state["focus_depth"]
+    assert abs(state["focus_depth"]["coding"] - 0.8) < 0.01
+    assert abs(state["focus_depth"]["gardening"] - 0.3) < 0.01
 
 def test_bayesian_update_int_range():
     pytest.skip("no int_range knob in the registry (all knobs are float/dict/enum/bool)")

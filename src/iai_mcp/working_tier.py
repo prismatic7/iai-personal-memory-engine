@@ -663,7 +663,7 @@ def close_task(store: Any = None) -> dict[str, Any]:
 def _open_fresh_entry_locked(record: Any) -> WorkingSetEntry:
     """Caller must hold _lock. Installs and returns a fresh focal
     WorkingSetEntry for the given record's session, stamped at the record's
-    turn time. The opening turn of a monotropic burst is the task's
+    turn time. The opening turn of a focus-depth burst is the task's
     goal/intent, so the first folded turn's verbatim content (bounded to the
     slot cap, never smoothed) seeds the goal."""
     global _FOCAL

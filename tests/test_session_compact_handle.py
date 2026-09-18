@@ -115,7 +115,7 @@ def test_compact_handle_is_hex_only_no_knob_leak():
 
     knob_names = [
         "wake_depth",
-        "autistic_mode",
+        "profile_mode",
         "hebbian_rate",
         "camouflaging_relaxation",
         "response_formality",

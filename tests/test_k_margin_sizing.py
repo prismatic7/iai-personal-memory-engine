@@ -149,12 +149,12 @@ def _build_combined_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, st
     from iai_mcp.retrieve import build_runtime_graph
     graph, assignment, rich_club = build_runtime_graph(store)
 
-    # Alternating monotropism_depth per community -- the only T8 sub-term
-    # capable of varying per candidate (interest_boost/dunn_quadrant are
+    # Alternating focus_depth per community -- the only T8 sub-term
+    # capable of varying per candidate (interest_boost/sensory_weighting are
     # uniform multipliers, order-preserving by construction); this makes T8
     # a real per-cue promotion driver instead of the score-only evidence the
     # small isolated fixture demonstrates. Values stay inside the knob's own
-    # legal range (`monotropism_depth`'s schema is `float_range:0.0..1.0`,
+    # legal range (`focus_depth`'s schema is `float_range:0.0..1.0`,
     # `lilli/profile/knobs.py:25`) so the measurement reflects a value a real
     # caller could actually set, not an out-of-schema exaggeration.
     names: dict[str, str] = {}
@@ -165,7 +165,7 @@ def _build_combined_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, st
         names[cid] = name
         depth[name] = 1.0 if i % 2 == 0 else 0.0
     set_community_names(names)
-    profile_state = {"monotropism_depth": depth}
+    profile_state = {"focus_depth": depth}
 
     tv_outgoing, tv_ts = build_temporal_validity_maps(store)
     return store, graph, assignment, rich_club, embedder, fixture, profile_state, tv_outgoing, tv_ts

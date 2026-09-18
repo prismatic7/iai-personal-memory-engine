@@ -168,7 +168,7 @@ def _topology_store_key(store: "MemoryStore") -> str:
 
 LIVE_KNOBS: dict[str, Any] = _profile_state
 DEFERRED_KNOBS: frozenset[str] = frozenset(profile.DEFERRED_KNOB_NAMES)
-assert len(DEFERRED_KNOBS) == 0, "all 9 autistic-kernel knobs live"
+assert len(DEFERRED_KNOBS) == 0, "all 9 profile-kernel knobs live"
 
 #: Store roots already hydrated in this process -- hydration reads the
 #: store's durable profile blob at most once per root, not once per call.

@@ -257,7 +257,7 @@ def test_hysteresis_protects_disambiguation_term_across_reruns(
     # (non-base) candidate rotates from "trio" to "combo" between nights on
     # a fresh, no-hysteresis computation -- the base token never moves, only
     # the disambiguation term. Without sticky hysteresis on the second term,
-    # the compound name (and the monotropism_depth key it backs) churns even
+    # the compound name (and the focus_depth key it backs) churns even
     # though cluster A names the same underlying topic both nights.
     cid_a = uuid4()
     cid_b = uuid4()

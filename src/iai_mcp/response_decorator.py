@@ -6,15 +6,15 @@ logger = logging.getLogger(__name__)
 
 
 HELPER_TO_KNOB_ID: dict[str, str] = {
-    "_apply_monotropic_focus": "AUTIST-01",
-    "_apply_literal_preservation": "AUTIST-04",
-    "_apply_pda_tolerance": "AUTIST-05",
-    "_apply_masking_off": "AUTIST-06",
-    "_apply_task_support": "AUTIST-07",
-    "_apply_inertia_awareness": "AUTIST-10",
-    "_apply_scene_construction": "AUTIST-14",
-    "dunn_quadrant": "AUTIST-03",
-    "interest_boost": "AUTIST-09",
+    "_apply_focus_depth": "TUNE-01",
+    "_apply_literal_preservation": "TUNE-04",
+    "_apply_phrasing_mode": "TUNE-05",
+    "_apply_terse_pragmatics": "TUNE-06",
+    "_apply_task_support": "TUNE-07",
+    "_apply_inertia_awareness": "TUNE-10",
+    "_apply_scene_construction": "TUNE-14",
+    "sensory_weighting": "TUNE-03",
+    "interest_boost": "TUNE-09",
     "wake_depth": "MCP-12",
 }
 
@@ -41,13 +41,13 @@ def apply_profile(response: dict, profile: dict, *, probe_active: bool = False) 
         applied = {}
 
     for helper in (
-        _apply_monotropic_focus,
+        _apply_focus_depth,
         _apply_literal_preservation,
-        _apply_masking_off,
+        _apply_terse_pragmatics,
         _apply_task_support,
         _apply_scene_construction,
-        _apply_dunn_quadrant,
-        _apply_pda_tolerance,
+        _apply_sensory_weighting,
+        _apply_phrasing_mode,
         _apply_interest_boost,
         _apply_inertia_awareness,
     ):
@@ -67,8 +67,8 @@ def apply_profile(response: dict, profile: dict, *, probe_active: bool = False) 
         if knob_id is None:
             continue
         provenance = f"response_decorator.py:{helper_name}"
-        if helper_name == "_apply_pda_tolerance":
-            mode = profile.get("demand_avoidance_tolerance", "collaborative")
+        if helper_name == "_apply_phrasing_mode":
+            mode = profile.get("phrasing_mode", "collaborative")
             if mode == "neutral":
                 provenance = f"{provenance}:no-op (mode=neutral)"
         elif helper_name == "_apply_inertia_awareness":
@@ -85,9 +85,9 @@ def apply_profile(response: dict, profile: dict, *, probe_active: bool = False) 
     return response
 
 
-def _apply_monotropic_focus(response: dict, profile: dict) -> None:
+def _apply_focus_depth(response: dict, profile: dict) -> None:
     try:
-        md = profile.get("monotropism_depth")
+        md = profile.get("focus_depth")
         if not isinstance(md, dict) or not md:
             return
         hot_topics = {t for t, depth in md.items() if _as_float(depth, 0.0) > 0.7}
@@ -108,7 +108,7 @@ def _apply_monotropic_focus(response: dict, profile: dict) -> None:
             return 0 if name is not None and name in hot_topics else 1
         hits.sort(key=_key)
     except (ValueError, TypeError, KeyError) as exc:
-        logger.debug("_apply_monotropic_focus: %s", exc)
+        logger.debug("_apply_focus_depth: %s", exc)
 
 
 def _apply_literal_preservation(response: dict, profile: dict) -> None:
@@ -120,9 +120,9 @@ def _apply_literal_preservation(response: dict, profile: dict) -> None:
         logger.debug("_apply_literal_preservation: %s", exc)
 
 
-def _apply_masking_off(response: dict, profile: dict) -> None:
+def _apply_terse_pragmatics(response: dict, profile: dict) -> None:
     try:
-        if not profile.get("masking_off", True):
+        if not profile.get("terse_pragmatics", True):
             return
         filler = (
             "Great question! ",
@@ -139,7 +139,7 @@ def _apply_masking_off(response: dict, profile: dict) -> None:
                         hit["surface_text"] = txt[len(f):]
                         break
     except (ValueError, TypeError, KeyError) as exc:
-        logger.debug("_apply_masking_off: %s", exc)
+        logger.debug("_apply_terse_pragmatics: %s", exc)
 
 
 def _apply_task_support(response: dict, profile: dict, probe_active: bool = False) -> None:
@@ -169,19 +169,19 @@ def _apply_scene_construction(response: dict, profile: dict) -> None:
         logger.debug("_apply_scene_construction: %s", exc)
 
 
-def _apply_dunn_quadrant(response: dict, profile: dict) -> None:
+def _apply_sensory_weighting(response: dict, profile: dict) -> None:
     try:
-        _ = profile.get("dunn_quadrant", "neutral")
+        _ = profile.get("sensory_weighting", "neutral")
     except (ValueError, TypeError, KeyError) as exc:
-        logger.debug("_apply_dunn_quadrant: %s", exc)
+        logger.debug("_apply_sensory_weighting: %s", exc)
 
 
-def _apply_pda_tolerance(response: dict, profile: dict) -> None:
+def _apply_phrasing_mode(response: dict, profile: dict) -> None:
     try:
-        mode = profile.get("demand_avoidance_tolerance", "collaborative")
+        mode = profile.get("phrasing_mode", "collaborative")
         if mode == "neutral":
             return
-        if mode == "avoidant":
+        if mode == "indirect":
             for hit in response.get("hits", []) or []:
                 if not isinstance(hit, dict):
                     continue
@@ -218,7 +218,7 @@ def _apply_pda_tolerance(response: dict, profile: dict) -> None:
                     rewritten.append(new_entry)
                 hit["adjacent_suggestions"] = rewritten
     except (ValueError, TypeError, KeyError) as exc:
-        logger.debug("_apply_pda_tolerance: %s", exc)
+        logger.debug("_apply_phrasing_mode: %s", exc)
 
 
 def _apply_interest_boost(response: dict, profile: dict) -> None:

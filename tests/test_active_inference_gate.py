@@ -33,7 +33,7 @@ def test_efer_rich_is_above_theta():
 
     rich = (
         "explain how CLS replay interacts with schema induction under "
-        "monotropic attention"
+        "focus-depth attention"
     )
     val = expected_free_energy_reduction(rich)
     assert val > THETA_SKIP

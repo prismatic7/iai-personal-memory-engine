@@ -57,18 +57,18 @@ def test_knobs_applied_preserves_upstream_seeded_entries() -> None:
     response = _resp(
         [_hit()],
         _knobs_applied={
-            "AUTIST-03": "profile.py:profile_modulation_for_record:dunn_quadrant=seeking",
-            "AUTIST-09": "profile.py:profile_modulation_for_record:interest_boost",
+            "TUNE-03": "profile.py:profile_modulation_for_record:sensory_weighting=raised",
+            "TUNE-09": "profile.py:profile_modulation_for_record:interest_boost",
             "MCP-12": "session.py:assemble_session_start:wake_depth=minimal",
         },
     )
     profile = default_state()
     apply_profile(response, profile)
     ka = response["_knobs_applied"]
-    assert "AUTIST-03" in ka
-    assert "profile.py" in ka["AUTIST-03"]
-    assert "AUTIST-09" in ka
-    assert "profile.py" in ka["AUTIST-09"]
+    assert "TUNE-03" in ka
+    assert "profile.py" in ka["TUNE-03"]
+    assert "TUNE-09" in ka
+    assert "profile.py" in ka["TUNE-09"]
     assert "MCP-12" in ka
     assert "session.py" in ka["MCP-12"]
 
@@ -76,12 +76,12 @@ def test_knobs_applied_preserves_upstream_seeded_entries() -> None:
 def test_knobs_applied_no_op_markers_for_pda_neutral() -> None:
     response = _resp([_hit()])
     profile = default_state()
-    profile["demand_avoidance_tolerance"] = "neutral"
+    profile["phrasing_mode"] = "neutral"
     apply_profile(response, profile)
     ka = response["_knobs_applied"]
-    assert "AUTIST-05" in ka
-    assert "no-op" in ka["AUTIST-05"], ka["AUTIST-05"]
-    assert "neutral" in ka["AUTIST-05"], ka["AUTIST-05"]
+    assert "TUNE-05" in ka
+    assert "no-op" in ka["TUNE-05"], ka["TUNE-05"]
+    assert "neutral" in ka["TUNE-05"], ka["TUNE-05"]
 
 
 def test_knobs_applied_no_op_markers_for_inertia_off() -> None:
@@ -89,8 +89,8 @@ def test_knobs_applied_no_op_markers_for_inertia_off() -> None:
     profile = default_state()
     apply_profile(response, profile)
     ka = response["_knobs_applied"]
-    assert "AUTIST-10" in ka
-    assert "no-op" in ka["AUTIST-10"], ka["AUTIST-10"]
+    assert "TUNE-10" in ka
+    assert "no-op" in ka["TUNE-10"], ka["TUNE-10"]
 
 
 def test_knobs_applied_no_op_marker_for_scene_construction_off() -> None:
@@ -99,8 +99,8 @@ def test_knobs_applied_no_op_marker_for_scene_construction_off() -> None:
     profile["scene_construction_scaffold"] = False
     apply_profile(response, profile)
     ka = response["_knobs_applied"]
-    assert "AUTIST-14" in ka
-    assert "no-op" in ka["AUTIST-14"], ka["AUTIST-14"]
+    assert "TUNE-14" in ka
+    assert "no-op" in ka["TUNE-14"], ka["TUNE-14"]
 
 
 def test_helper_to_knob_id_has_10_verified_entries() -> None:
@@ -111,12 +111,12 @@ def test_helper_to_knob_id_has_10_verified_entries() -> None:
     )
     knob_ids = set(HELPER_TO_KNOB_ID.values())
     assert len(knob_ids) == 10, knob_ids
-    for removed in ("AUTIST-02", "AUTIST-08", "AUTIST-11", "AUTIST-12", "AUTIST-13"):
+    for removed in ("TUNE-02", "TUNE-08", "TUNE-11", "TUNE-12", "TUNE-13"):
         assert removed not in knob_ids, (
             f"{removed} was removed; do not re-add"
         )
-    expected_autist = {f"AUTIST-{i:02d}" for i in (1, 3, 4, 5, 6, 7, 9, 10, 14)}
-    assert expected_autist.issubset(knob_ids), (expected_autist - knob_ids)
+    expected_ids = {f"TUNE-{i:02d}" for i in (1, 3, 4, 5, 6, 7, 9, 10, 14)}
+    assert expected_ids.issubset(knob_ids), (expected_ids - knob_ids)
     assert "MCP-12" in knob_ids
 
 
@@ -147,9 +147,9 @@ def test_profile_modulation_records_into_accumulator() -> None:
         tags=[],
     )
     state = default_state()
-    state["monotropism_depth"] = {"coding": 0.5}
+    state["focus_depth"] = {"coding": 0.5}
     state["interest_boost"] = 0.3
-    state["dunn_quadrant"] = "seeking"
+    state["sensory_weighting"] = "raised"
 
     saved_names = dict(core._community_names_cache)
     core.set_community_names({str(cid): "coding"})
@@ -158,13 +158,13 @@ def test_profile_modulation_records_into_accumulator() -> None:
         gains = profile_modulation_for_record(rec, state, knobs_applied=accumulator)
     finally:
         core.set_community_names(saved_names)
-    assert "monotropism_depth" in gains
-    assert "AUTIST-01" in accumulator, accumulator
-    assert "AUTIST-09" in accumulator, accumulator
-    assert "AUTIST-03" in accumulator, accumulator
-    assert "profile.py" in accumulator["AUTIST-01"], accumulator["AUTIST-01"]
-    assert "profile.py" in accumulator["AUTIST-03"], accumulator["AUTIST-03"]
-    assert "profile.py" in accumulator["AUTIST-09"], accumulator["AUTIST-09"]
+    assert "focus_depth" in gains
+    assert "TUNE-01" in accumulator, accumulator
+    assert "TUNE-09" in accumulator, accumulator
+    assert "TUNE-03" in accumulator, accumulator
+    assert "profile.py" in accumulator["TUNE-01"], accumulator["TUNE-01"]
+    assert "profile.py" in accumulator["TUNE-03"], accumulator["TUNE-03"]
+    assert "profile.py" in accumulator["TUNE-09"], accumulator["TUNE-09"]
 
 
 def test_profile_modulation_back_compat_without_kwarg() -> None:
@@ -247,9 +247,9 @@ def _call_production_dispatch_path(tmp_path, monkeypatch) -> dict:
     saved_names = dict(core._community_names_cache)
     core.set_community_names({str(cid): "coding"})
     try:
-        core._profile_state["dunn_quadrant"] = "seeking"
+        core._profile_state["sensory_weighting"] = "raised"
         core._profile_state["interest_boost"] = 0.5
-        core._profile_state["monotropism_depth"] = {"coding": 0.5}
+        core._profile_state["focus_depth"] = {"coding": 0.5}
 
         params = {
             "cue": "reference content for knobs telemetry test",
@@ -273,18 +273,18 @@ def test_knobs_applied_via_production_dispatch_path(tmp_path, monkeypatch) -> No
 
     assert len(ka) == 10, ka
 
-    for required in ("AUTIST-03", "AUTIST-09", "MCP-12"):
+    for required in ("TUNE-03", "TUNE-09", "MCP-12"):
         assert required in ka, (required, sorted(ka.keys()))
-    assert "profile.py" in ka["AUTIST-03"], ka["AUTIST-03"]
-    assert "profile.py" in ka["AUTIST-09"], ka["AUTIST-09"]
+    assert "profile.py" in ka["TUNE-03"], ka["TUNE-03"]
+    assert "profile.py" in ka["TUNE-09"], ka["TUNE-09"]
     assert "session.py" in ka["MCP-12"], ka["MCP-12"]
 
-    for removed in ("AUTIST-02", "AUTIST-08", "AUTIST-11", "AUTIST-12", "AUTIST-13"):
+    for removed in ("TUNE-02", "TUNE-08", "TUNE-11", "TUNE-12", "TUNE-13"):
         assert removed not in ka, (removed, ka)
 
-    for autist in (
-        "AUTIST-01", "AUTIST-03", "AUTIST-04", "AUTIST-05",
-        "AUTIST-06", "AUTIST-07", "AUTIST-09", "AUTIST-10",
-        "AUTIST-14",
+    for knob_id in (
+        "TUNE-01", "TUNE-03", "TUNE-04", "TUNE-05",
+        "TUNE-06", "TUNE-07", "TUNE-09", "TUNE-10",
+        "TUNE-14",
     ):
-        assert autist in ka, (autist, sorted(ka.keys()))
+        assert knob_id in ka, (profile, sorted(ka.keys()))

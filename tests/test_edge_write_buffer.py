@@ -333,7 +333,7 @@ def test_contradict_buffered_src_no_unknown_record_error(tmp_path, monkeypatch):
         rec = MemoryRecord(
             id=uuid4(),
             tier="episodic",
-            literal_surface="alice uses monotropic focus",
+            literal_surface="alice uses focus-depth focus",
             aaak_index="",
             embedding=[0.1] * EMBED_DIM,
             community_id=None,

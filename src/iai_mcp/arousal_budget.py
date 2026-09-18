@@ -75,7 +75,7 @@ def compute_retrieval_params(arousal: ArousalState) -> RetrievalParams:
             budget_tokens=BUDGET_MIN_TOKENS,
             max_hops=HOPS_HIGH_STRESS,
             rank_threshold=RANK_THRESHOLD_HIGH,
-            mode="monotropic_tunnel",
+            mode="focus_tunnel",
         )
     elif level <= STRESS_THRESHOLD_LOW:
         return RetrievalParams(

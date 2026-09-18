@@ -534,15 +534,27 @@ iai-mcp daemon status
 
 The project is **iai**, a personal memory engine.
 
-**IAI — Independent Autistic Intelligence** describes the intended memory style:
+**iai** keeps a person's memory on their own machine, for the assistant they
+already use. The engine, embeddings, store, and native core all run locally:
+there is no account, telemetry, or cloud memory dependency.
 
-- **Independent.** The engine, embeddings, store, and dashboard run locally. There is no account, telemetry, or cloud memory dependency.
-- **Autistic.** The system favours literal preservation, precise cues, sustained focus on the active thread, and retention of rare events instead of smoothing them into a typical summary. This describes an operational memory design, not a diagnosis or a casual metaphor.
-- **Intelligence.** Used in the systems sense: a process that observes, adapts, reorganizes itself, and remains viable over time.
+Most memory layers aggressively extract or summarize a gist. iai-memory keeps
+the original episodic wording and builds semantic and procedural structure
+around it. Rare events stay rare rather than being smoothed toward a typical
+case, and revision history is retained. The trade-off is more local storage and
+a stricter retrieval path in exchange for preserving details.
 
-Most memory layers aggressively extract or summarize a gist. iai-memory keeps the original episodic wording and builds semantic and procedural structure around it. The trade-off is more local storage and a stricter retrieval path in exchange for preserving details and revision history.
+**Personal memory engine** describes the scope: one person's memory, on one
+machine, used by the assistant they already have. It is an engine because the
+storage, graph, clustering, hyperdimensional substrate, and native core are part
+of the project rather than delegated to external services.
 
-**Personal memory engine** describes the scope: one person's memory, on one machine, used by the assistant they already have. It is an engine because the storage, graph, clustering, hyperdimensional substrate, and native core are part of the project rather than delegated to external services.
+*Earlier versions described the design through a clinical vocabulary drawn from
+autism research. That framing has been removed. The retrieval, ranking, and
+formatting behaviours it named are real, but they are operational choices about
+text and scores; describing an ML system with a human psychological profile
+overstates what it does and makes a claim about people that the software cannot
+support. The behaviours remain, under operational names.*
 
 ---
 

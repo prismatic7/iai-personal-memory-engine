@@ -363,7 +363,7 @@ class _RecallCoreResult:
     # a prior call's gain.
     _profile_gains: dict = field(default_factory=dict)
     # Pre-rank community-gate top-1 + K + backend, carried out for the
-    # monotropism_depth signal -- never the post-rank top hit.
+    # focus_depth signal -- never the post-rank top hit.
     cue_community_id: "str | None" = None
     community_k: "int | None" = None
     community_backend: "str | None" = None
@@ -1389,7 +1389,7 @@ def _recall_core(
             _arousal_max_hops_used = int(min(int(_arousal_params.max_hops), spread_hops))
             spread_hops = _arousal_max_hops_used
             _amode = _arousal_params.mode
-            if _amode == "monotropic_tunnel":
+            if _amode == "focus_tunnel":
                 _arousal_mode_bias_adjust = -0.05
             elif _amode == "associative_dream":
                 _arousal_mode_bias_adjust = +0.05

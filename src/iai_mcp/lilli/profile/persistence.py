@@ -1,4 +1,4 @@
-"""Durable home for the autistic-cognition profile: one AES-256-GCM
+"""Durable home for the retrieval-tuning profile: one AES-256-GCM
 encrypted JSON blob in the store's ``_hippo_meta`` table, plus in-place
 hydration of the live process mappings from it.
 
@@ -26,6 +26,52 @@ PROFILE_META_KEY = "profile_state"
 PROFILE_META_ORPHAN_KEY = "profile_state.orphan"
 PROFILE_BLOB_VERSION = 1
 PROFILE_BLOB_AAD = b"profile_state"
+
+#: Pre-rename knob names -> current names. The durable blob is written by an
+#: older build and read by a newer one during an upgrade, so a name that came
+#: from the retired clinical vocabulary must still land on its knob. Without
+#: this the loader's unknown-name filter silently DROPS the value and the knob
+#: falls back to its default -- a quiet reset of the user's tuning, not an
+#: error. Kept forever: an unloaded store may be many versions old.
+LEGACY_KNOB_ALIASES: dict[str, str] = {
+    "monotropism_depth": "focus_depth",
+    "dunn_quadrant": "sensory_weighting",
+    "demand_avoidance_tolerance": "phrasing_mode",
+    "masking_off": "terse_pragmatics",
+}
+
+#: Retired enum member names -> current ones, keyed by knob. Same hazard as
+#: above: the value is valid for the OLD schema and fails `_validate` against
+#: the new one, so an unmapped name is dropped rather than migrated.
+LEGACY_ENUM_ALIASES: dict[str, dict[str, str]] = {
+    "sensory_weighting": {
+        "low-registration": "low",
+        "seeking": "raised",
+        "sensitive": "heightened",
+        "avoiding": "dampened",
+    },
+}
+
+
+def _migrate_legacy_knobs(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Translate retired knob names / enum members to their current spelling.
+
+    Returns ``(migrated, renamed)``. Unknown names are passed through untouched
+    so the caller's existing drop-and-report path still sees them.
+    """
+    migrated: dict[str, Any] = {}
+    renamed: list[str] = []
+    for name, value in raw.items():
+        current = LEGACY_KNOB_ALIASES.get(name, name)
+        if current != name:
+            renamed.append(f"{name}->{current}")
+        enum_map = LEGACY_ENUM_ALIASES.get(current)
+        if enum_map and isinstance(value, str) and value in enum_map:
+            new_value = enum_map[value]
+            renamed.append(f"{current}:{value}->{new_value}")
+            value = new_value
+        migrated[current] = value
+    return migrated, renamed
 
 
 def _hippo_db(store: Any) -> "object | None":
@@ -193,7 +239,9 @@ def load_profile_state(store: Any) -> "dict | None":
 
     dropped: list[str] = []
     knobs_out: dict = {}
-    for name, value in dict(payload.get("knobs") or {}).items():
+    legacy_raw = dict(payload.get("knobs") or {})
+    migrated, renamed = _migrate_legacy_knobs(legacy_raw)
+    for name, value in migrated.items():
         spec = PROFILE_KNOBS.get(name)
         if spec is None:
             dropped.append(name)
@@ -204,14 +252,19 @@ def load_profile_state(store: Any) -> "dict | None":
             continue
         knobs_out[name] = value
 
-    posterior_out = _filter_registry_members(dict(payload.get("posterior") or {}), dropped)
-    pins_out = _filter_registry_members(dict(payload.get("pins") or {}), dropped)
+    # posterior / pins are keyed by knob name too, so a legacy key would be
+    # dropped from those maps even though the value itself migrated.
+    posterior_raw, _ = _migrate_legacy_knobs(dict(payload.get("posterior") or {}))
+    pins_raw, _ = _migrate_legacy_knobs(dict(payload.get("pins") or {}))
+    posterior_out = _filter_registry_members(posterior_raw, dropped)
+    pins_out = _filter_registry_members(pins_raw, dropped)
 
     return {
         "knobs": knobs_out,
         "posterior": posterior_out,
         "pins": pins_out,
         "dropped": dropped,
+        "migrated": renamed,
         "updated_at": payload.get("updated_at"),
     }
 

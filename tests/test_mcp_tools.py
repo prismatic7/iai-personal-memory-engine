@@ -189,7 +189,7 @@ def test_wrapper_profile_get_returns_live_knobs(built_wrapper: Path, daemon_sock
         content = resp["result"]["content"][0]["text"]
         payload = json.loads(content)
         assert payload["live"]["literal_preservation"] == "strong"
-        assert payload["live"]["masking_off"] is True
+        assert payload["live"]["terse_pragmatics"] is True
         assert payload["live"]["task_support"] == "cued_recognition"
         assert payload["live"]["scene_construction_scaffold"] is True
         assert len(payload["live"]) == 10
