@@ -570,9 +570,43 @@ def _rank_builder_feed(builder_graph, handle, fetched: dict) -> None:
             logger.debug("rank_builder_feed_failed id=%s: %s", _rid, exc)
 
 
+#: Env gate for the RPC dispatch census. Off by default: it is a measurement
+#: instrument, not a feature, and it writes state on every call.
+_DISPATCH_CENSUS_ENV = "IAI_MCP_DISPATCH_CENSUS"
+
+
+def _census_dispatch(method: str) -> None:
+    """Count one RPC dispatch into ``.daemon-state.json`` under ``rpc_dispatch``.
+
+    Answers "which verbs does anything actually call" -- the question that
+    decides which surfaces are redundant. Cheap by design: a single dict
+    increment behind an env gate, on the daemon's safe concurrent write path.
+
+    Never raises. A measurement instrument must not be able to break the path
+    it measures, so every failure is swallowed -- including the whole-module
+    import, which keeps this inert in contexts that never touch daemon state.
+    """
+    if os.environ.get(_DISPATCH_CENSUS_ENV) != "1":
+        return
+    try:
+        from iai_mcp.daemon_state import update_state
+
+        def _bump(state: dict) -> None:
+            counts = state.get("rpc_dispatch")
+            if not isinstance(counts, dict):
+                counts = {}
+                state["rpc_dispatch"] = counts
+            counts[method] = int(counts.get(method) or 0) + 1
+
+        update_state(_bump)
+    except Exception:  # noqa: BLE001 -- census is advisory, never fatal
+        pass
+
+
 def dispatch(store: MemoryStore, method: str, params: dict) -> dict:
     global _last_injection_embedding, _last_injection_ids, _arousal_state
     global _topology_cache, _topology_cache_at, _topology_cache_key
+    _census_dispatch(method)
     ensure_profile_hydrated(store)
     if method == "memory_recall":
         _recall_t0 = _time.perf_counter()
