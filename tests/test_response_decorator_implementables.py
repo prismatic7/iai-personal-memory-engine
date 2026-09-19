@@ -25,7 +25,7 @@ def _first_turn_recall_dict() -> dict:
         "warm_lru_source": "none",
     }
 
-def test_pda_tolerance_collaborative_softens_imperatives() -> None:
+def test_phrasing_mode_collaborative_softens_imperatives() -> None:
     response = _resp([
         _hit("orig", suggestions=[
             "Try refactoring X",
@@ -45,17 +45,17 @@ def test_pda_tolerance_collaborative_softens_imperatives() -> None:
         "If you Try refactoring later, beware",
     ]
 
-def test_pda_tolerance_avoidant_prepends_fyi() -> None:
-    response = _resp([_hit("orig", suggestions=["Try X", "Run Y", "ad-hoc note"])])
-    profile = {"phrasing_mode": "indirect"}
+def test_phrasing_mode_imperative_leaves_suggestions_untouched() -> None:
+    """``imperative`` is a declared enum member and means "do not soften":
+    the suggestions must come back byte-identical."""
+    suggestions = ["Try X", "Run Y", "ad-hoc note"]
+    response = _resp([_hit("orig", suggestions=list(suggestions))])
+    profile = {"phrasing_mode": "imperative"}
     apply_profile(response, profile)
-    assert response["hits"][0]["adjacent_suggestions"] == [
-        "FYI: Try X",
-        "FYI: Run Y",
-        "FYI: ad-hoc note",
-    ]
+    assert response["hits"][0]["adjacent_suggestions"] == suggestions
 
-def test_pda_tolerance_neutral_no_op() -> None:
+
+def test_phrasing_mode_neutral_no_op() -> None:
     suggestions = ["Try X", "Run Y", "ad-hoc note"]
     response = _resp([_hit("orig", suggestions=list(suggestions))])
     snapshot = copy.deepcopy(response)

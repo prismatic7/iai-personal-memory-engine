@@ -179,18 +179,12 @@ def _apply_sensory_weighting(response: dict, profile: dict) -> None:
 def _apply_phrasing_mode(response: dict, profile: dict) -> None:
     try:
         mode = profile.get("phrasing_mode", "collaborative")
+        # ``imperative`` means "leave imperatives alone" and ``neutral`` means
+        # "change nothing", so both fall through without touching the response.
+        # Only ``collaborative`` rewrites. The schema is
+        # enum:collaborative|neutral|imperative -- a branch for any other value
+        # could never run, because ``profile_set`` validates on the way in.
         if mode == "neutral":
-            return
-        if mode == "indirect":
-            for hit in response.get("hits", []) or []:
-                if not isinstance(hit, dict):
-                    continue
-                suggestions = hit.get("adjacent_suggestions")
-                if not isinstance(suggestions, list):
-                    continue
-                hit["adjacent_suggestions"] = [
-                    f"FYI: {entry}" for entry in suggestions
-                ]
             return
         if mode == "collaborative":
             substitutions: tuple[tuple[str, str], ...] = (
