@@ -178,6 +178,9 @@ class SleepPipeline:
         # Holds the per-step resident-set snapshot taken at step start so the
         # completion event can report the gross (pre-relief) delta.
         self._current_step_rss_before: dict[str, Any] | None = None
+        # FORK: last step's measured resident-set delta in KiB, published by
+        # _emit_step_completed so the dispatch loop's relief gate can read it.
+        self._last_step_rss_delta_kib: int | None = None
 
     def _get_state_path(self) -> Path:
         if self._lifecycle_state_path is not None:
@@ -417,6 +420,12 @@ class SleepPipeline:
             logger.debug("best-effort sleep_step_completed event failed: %s", exc)
         finally:
             self._current_step_rss_before = None
+            # FORK: publish the measured delta for the dispatch loop's relief
+            # gate. `rss_delta_kib` is local to this hook, so the gate cannot
+            # read it directly; this is the hand-off.
+            self._last_step_rss_delta_kib = (
+                rss_delta_kib if isinstance(rss_delta_kib, int) else None
+            )
 
     def _check_interrupt(
         self,
@@ -548,12 +557,38 @@ class SleepPipeline:
     # to-pandas paths). After each, a memory-relief postlude hands idle
     # allocator pages back to the OS. Not a step — a loop-tail call gated on
     # this set, so the step order and the WAL recovery index stay frozen.
+    #
+    # FORK: this is a FLOOR, not the whole rule. See the measured-delta gate in
+    # the dispatch loop — the set alone proved to be mis-targeted on a mature
+    # corpus, so any step whose own measured transient clears the threshold is
+    # also relieved.
     HEAVY_RELIEF_STEPS: frozenset[SleepStep] = frozenset({
         SleepStep.CRISIS_RECLUSTER,
         SleepStep.RECONSOLIDATION,
         SleepStep.CLUSTER_REPLAY,
         SleepStep.OPTIMIZE_HIPPO,
     })
+
+    #: A step whose measured resident-set growth reaches this many KiB gets the
+    #: relief postlude even if it is not in HEAVY_RELIEF_STEPS.
+    #:
+    #: WHY THIS EXISTS (fork, measured on this store): the curated set covered
+    #: CRISIS_RECLUSTER / RECONSOLIDATION / CLUSTER_REPLAY / OPTIMIZE_HIPPO,
+    #: but four consecutive cycles recorded the real cost elsewhere —
+    #: SCHEMA_MINE +216.2/+195.0/+74.6 MiB, RECALL_INDEX_REBUILD
+    #: +97.2/+68.5 MiB, EMBEDDING_INTEGRITY +58.1/+41.5 MiB, USER_MODEL_UPDATE
+    #: +42.6/+34.9 MiB, HIPPO_CLEANUP +44.6 MiB — while the three clustering
+    #: steps the set DID cover measured +0.0/+0.1/+2.9 MiB. The set was
+    #: therefore relieving the cheapest steps and skipping the expensive ones.
+    #:
+    #: A threshold self-corrects as the corpus and step costs drift, where a
+    #: fixed list silently goes stale (which is exactly how this was found).
+    #: Relief is gc.collect() — measured to reclaim hundreds of MB from large
+    #: transients, and microseconds when there is nothing to collect — so
+    #: over-triggering is cheap and under-triggering is the expensive failure.
+    #: 8 MiB is therefore chosen to include the marginal steps (ENTITY_LINK
+    #: +11.8, COMMUNITY_NAMING +12.0 MiB) rather than sitting just above them.
+    _RELIEF_MIN_DELTA_KIB: int = 8 * 1024  # 8 MiB
 
     _QUARANTINE_STRIKE_THRESHOLD: int = 3
 
@@ -700,7 +735,17 @@ class SleepPipeline:
             completed_steps.append(step)
             step_payloads[step] = payload
 
-            if step in self.HEAVY_RELIEF_STEPS:
+            # FORK: relieve on the curated set OR on the step's OWN measured
+            # transient. The set alone was mis-targeted — it covered the three
+            # clustering steps that measured ~0 MiB and skipped SCHEMA_MINE
+            # (+216 MiB), RECALL_INDEX_REBUILD (+97 MiB), EMBEDDING_INTEGRITY
+            # (+58 MiB) and USER_MODEL_UPDATE (+43 MiB). The threshold makes the
+            # gate track reality as step costs drift, instead of going stale.
+            _relief_heavy = step in self.HEAVY_RELIEF_STEPS
+            if not _relief_heavy:
+                _delta = getattr(self, "_last_step_rss_delta_kib", None)
+                _relief_heavy = isinstance(_delta, int) and _delta >= self._RELIEF_MIN_DELTA_KIB
+            if _relief_heavy:
                 try:
                     from iai_mcp.lilli.cycle.sleep_pipeline._memory_relief import (
                         _step_memory_relief,
