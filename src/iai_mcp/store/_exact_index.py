@@ -185,7 +185,22 @@ class ExactCosineIndex:
                 return []
 
             active = self._m[:count]
-            sims = active @ cue_unit
+            # Suppress spurious FP-flag warnings from the BLAS kernel.
+            #
+            # macOS Accelerate's SGEMM leaves the FP status flags set across
+            # calls, so numpy raises divide-by-zero/overflow/invalid for this
+            # matmul even when BOTH operands and the RESULT are finite. Proved
+            # with all-ones operands: the full triad fires while the result is
+            # the correct 1.0. Both operands here are provably finite —
+            # _normalize_row guarantees a finite row, and build()/upsert() are
+            # the only writers into _m and both normalize. So the warnings
+            # carry no information; left unsuppressed they spam the daemon
+            # stderr (1,359 lines in one 24h log) and bury real signal.
+            #
+            # Results are bit-identical with and without this scope — errstate
+            # only gates the warning, never the arithmetic.
+            with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+                sims = active @ cue_unit
 
             k_eff = min(k, count)
             # A full stable argsort, not an argpartition fast path: at these
