@@ -12,10 +12,32 @@ raise on any platform, because it runs after a successful step whose progress
 is already persisted.
 
 Allocator-arena reclaim primitives are deliberately NOT called here:
-``malloc_zone_pressure_relief`` measured ~0 against the arenas the heavy
-steps actually allocate from, and page return to the OS is governed by the
-allocator's own decommit-on-free behaviour (tuned via environment variables
-in the launchd plist, effective at process spawn — no in-process call).
+
+* ``malloc_zone_pressure_relief`` measured **0.0 MB reclaimed** on this host's
+  allocator across every transient shape tested (200×4 MiB blocks, 40×32 MiB
+  blocks, 300k×1 KiB objects) — a real negative result, so skipping it is
+  correct.
+* ``gc.collect()`` is NOT redundant with it: the same shapes measured
+  **824.9 → 278.8 MB** and **1808.5 → 421.7 MB** reclaimed. The relief below is
+  therefore load-bearing, not a formality.
+
+The earlier rationale here said the allocator was mimalloc and that its
+page-return "is governed by the allocator's own decommit-on-free behaviour
+(tuned via environment variables in the launchd plist)". **That premise is
+false and has been retracted:** mimalloc is not loaded in this daemon at all
+(``vmmap`` shows zero mimalloc regions; the OS/``DefaultMallocZone`` allocator
+handles everything, and mimalloc is not a dependency anywhere in the tree).
+Moreover the three ``MIMALLOC_*`` vars the plist ships
+(``MIMALLOC_ALLOW_DECOMMIT`` / ``_DECOMMIT_DELAY`` / ``_SEGMENT_DECOMMIT_DELAY``)
+are **not real mimalloc options** — none appear in mimalloc's own 48-option
+dump, and upstream documents no such names. The real equivalents are
+``MIMALLOC_PURGE_DECOMMITS`` / ``MIMALLOC_PURGE_DELAY`` /
+``MIMALLOC_ARENA_EAGER_COMMIT``.
+
+Finally, preloading mimalloc here would be actively harmful: measured on the
+same transient it retains **823 MB** after free versus libmalloc's **278 MB**
+(three bursts, identical; unchanged by any knob set). Mimalloc purges rather
+than frees, so do not add it to this workload.
 
 ``zone_reclaimed_mb`` is kept at 0.0 in the telemetry dict for schema
 stability (existing event readers expect the key).
